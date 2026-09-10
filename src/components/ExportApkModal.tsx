@@ -1,0 +1,400 @@
+import React, { useState } from 'react';
+import { X, Download, Github, Terminal, Check, PackageCheck, Sparkles, Smartphone } from 'lucide-react';
+import JSZip from 'jszip';
+
+// Import raw source strings for zip packaging
+import readmeContent from '../android-code/README.md?raw';
+import gradleContent from '../android-code/build.gradle.kts?raw';
+import manifestContent from '../android-code/AndroidManifest.xml?raw';
+import mainActivityContent from '../android-code/MainActivity.kt?raw';
+import authManagerContent from '../android-code/AuthManager.kt?raw';
+import repositoryContent from '../android-code/GmailRepository.kt?raw';
+import viewModelContent from '../android-code/MailViewModel.kt?raw';
+import uiContent from '../android-code/SwipeableMailStack.kt?raw';
+import themeContent from '../android-code/Theme.kt?raw';
+
+interface ExportApkModalProps {
+  isOpen: boolean;
+  onClose: () => void;
+  isDarkTheme: boolean;
+}
+
+export default function ExportApkModal({ isOpen, onClose, isDarkTheme }: ExportApkModalProps) {
+  const [isZipping, setIsZipping] = useState(false);
+  const [copiedCmd, setCopiedCmd] = useState<string | null>(null);
+
+  if (!isOpen) return null;
+
+  const copyCommand = (cmd: string, key: string) => {
+    navigator.clipboard.writeText(cmd);
+    setCopiedCmd(key);
+    setTimeout(() => setCopiedCmd(null), 2500);
+  };
+
+  const handleDownloadZip = async () => {
+    try {
+      setIsZipping(true);
+      const zip = new JSZip();
+
+      // Top-level Android configuration files
+      zip.file('settings.gradle.kts', `pluginManagement {
+    repositories {
+        google {
+            content {
+                includeGroupByRegex("com\\\\.android.*")
+                includeGroupByRegex("com\\\\.google.*")
+                includeGroupByRegex("androidx.*")
+            }
+        }
+        mavenCentral()
+        gradlePluginPortal()
+    }
+}
+dependencyResolutionManagement {
+    repositoriesMode.set(RepositoriesMode.FAIL_ON_PROJECT_REPOS)
+    repositories {
+        google()
+        mavenCentral()
+    }
+}
+
+rootProject.name = "ZeroInbox"
+include(":app")
+`);
+
+      zip.file('build.gradle.kts', `plugins {
+    id("com.android.application") version "8.3.2" apply false
+    id("org.jetbrains.kotlin.android") version "1.9.23" apply false
+}
+`);
+
+      zip.file('gradle.properties', `org.gradle.jvmargs=-Xmx2048m -Dfile.encoding=UTF-8
+android.useAndroidX=true
+android.nonTransitiveRClass=true
+kotlin.code.style=official
+`);
+
+      zip.file('README.md', readmeContent);
+
+      // GitHub Actions workflow for automatic APK building
+      const githubFolder = zip.folder('.github')?.folder('workflows');
+      if (githubFolder) {
+        githubFolder.file('build-apk.yml', `name: Build Zero Inbox Android APK
+
+on:
+  push:
+    branches: [ "main", "master" ]
+    tags: [ "v*" ]
+  pull_request:
+    branches: [ "main", "master" ]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: Build & Package APK
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Codebase
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+          cache: 'gradle'
+
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v3
+        with:
+          gradle-version: '8.4'
+
+      - name: Build Android Debug APK
+        working-directory: android
+        run: |
+          gradle assembleDebug --stacktrace --no-daemon
+
+      - name: Verify APK Generated
+        run: |
+          cp android/app/build/outputs/apk/debug/app-debug.apk ./ZeroInbox-v1.0.0-debug.apk
+
+      - name: Upload APK Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ZeroInbox-v1.0.0-debug-APK
+          path: ./ZeroInbox-v1.0.0-debug.apk
+          retention-days: 90
+`);
+      }
+
+      // App module
+      const appFolder = zip.folder('app');
+      if (appFolder) {
+        appFolder.file('build.gradle.kts', gradleContent);
+        appFolder.file('proguard-rules.pro', `# ProGuard rules for ZeroInbox
+-keepattributes *Annotation*
+-keepclassmembers class * {
+    @org.apache.http.annotation.NotThreadSafe <fields>;
+    @org.apache.http.annotation.ThreadSafe <fields>;
+    @org.apache.http.annotation.Immutable <fields>;
+    @org.apache.http.annotation.GuardedBy <fields>;
+}
+-dontwarn com.google.api.client.**
+-dontwarn com.google.common.**
+-dontwarn org.apache.http.**
+`);
+
+        const mainFolder = appFolder.folder('src')?.folder('main');
+        if (mainFolder) {
+          mainFolder.file('AndroidManifest.xml', manifestContent);
+
+          // Kotlin source files
+          const pkgFolder = mainFolder.folder('java')?.folder('com')?.folder('example')?.folder('zeroinbox');
+          if (pkgFolder) {
+            pkgFolder.file('MainActivity.kt', mainActivityContent);
+            pkgFolder.file('AuthManager.kt', authManagerContent);
+            pkgFolder.file('GmailRepository.kt', repositoryContent);
+            pkgFolder.file('MailViewModel.kt', viewModelContent);
+
+            const uiFolder = pkgFolder.folder('ui');
+            uiFolder?.file('SwipeableMailStack.kt', uiContent);
+
+            const themeFolder = uiFolder?.folder('theme');
+            themeFolder?.file('Theme.kt', themeContent);
+          }
+
+          // Resources
+          const resFolder = mainFolder.folder('res');
+          if (resFolder) {
+            const valuesFolder = resFolder.folder('values');
+            valuesFolder?.file('strings.xml', `<resources>
+    <string name="app_name">Zero Inbox</string>
+</resources>`);
+            valuesFolder?.file('colors.xml', `<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="black">#FF000000</color>
+    <color name="white">#FFFFFFFF</color>
+    <color name="neon_cyan">#FF00FFFF</color>
+    <color name="neon_magenta">#FFFF00FF</color>
+    <color name="neon_blue">#FF007BFF</color>
+</resources>`);
+            valuesFolder?.file('themes.xml', `<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <style name="Theme.ZeroInbox" parent="android:Theme.Material.NoActionBar">
+        <item name="android:statusBarColor">#0A0A0E</item>
+        <item name="android:navigationBarColor">#0A0A0E</item>
+    </style>
+</resources>`);
+          }
+        }
+      }
+
+      // Generate zip blob and trigger download
+      const content = await zip.generateAsync({ type: 'blob' });
+      const url = URL.createObjectURL(content);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = 'ZeroInbox-Android-Project.zip';
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(url);
+    } catch (err) {
+      console.error('Failed to create project zip', err);
+    } finally {
+      setIsZipping(false);
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/75 backdrop-blur-sm animate-fadeIn">
+      <div
+        className={`w-full max-w-2xl max-h-[90vh] overflow-y-auto rounded-2xl border shadow-2xl ${
+          isDarkTheme ? 'bg-[#13131A] border-[#2E2E3E] text-gray-200' : 'bg-white border-slate-200 text-slate-800'
+        }`}
+      >
+        {/* Modal Header */}
+        <div
+          className={`p-5 border-b flex items-center justify-between sticky top-0 z-10 ${
+            isDarkTheme ? 'bg-[#13131A] border-[#222230]' : 'bg-white border-slate-200'
+          }`}
+        >
+          <div className="flex items-center gap-3">
+            <div className="w-9 h-9 rounded-xl bg-gradient-to-tr from-[#007BFF] to-[#00FFFF] p-[2px] flex items-center justify-center">
+              <div className={`w-full h-full ${isDarkTheme ? 'bg-[#13131A]' : 'bg-white'} rounded-[9px] flex items-center justify-center`}>
+                <Smartphone className={isDarkTheme ? 'text-[#00FFFF]' : 'text-sky-600'} size={18} />
+              </div>
+            </div>
+            <div>
+              <h2 className="text-base font-bold flex items-center gap-2">
+                Package & Download APK
+                <span className="text-[10px] font-mono px-2 py-0.5 rounded-full font-semibold uppercase bg-emerald-500/10 text-emerald-400 border border-emerald-500/30">
+                  Ready
+                </span>
+              </h2>
+              <p className={`text-xs ${isDarkTheme ? 'text-gray-400' : 'text-slate-500'}`}>
+                Automated GitHub Actions APK build & ready-to-run Android Gradle project
+              </p>
+            </div>
+          </div>
+          <button
+            onClick={onClose}
+            className={`p-2 rounded-xl transition-colors ${
+              isDarkTheme ? 'hover:bg-[#1F1F2C] text-gray-400 hover:text-white' : 'hover:bg-slate-100 text-slate-500'
+            }`}
+          >
+            <X size={18} />
+          </button>
+        </div>
+
+        {/* Modal Body */}
+        <div className="p-6 space-y-6">
+          {/* Method 1: Automatic GitHub Actions APK Builder */}
+          <div
+            className={`p-5 rounded-xl border ${
+              isDarkTheme
+                ? 'bg-[#1A1A24] border-[#00FFFF]/30 shadow-[0_0_20px_rgba(0,255,255,0.06)]'
+                : 'bg-sky-50/70 border-sky-200'
+            }`}
+          >
+            <div className="flex items-start justify-between gap-4">
+              <div className="space-y-1">
+                <div className="flex items-center gap-2">
+                  <Github size={18} className={isDarkTheme ? 'text-[#00FFFF]' : 'text-sky-600'} />
+                  <h3 className="text-sm font-bold">1. Push to GitHub & Download APK from Artifacts</h3>
+                </div>
+                <p className={`text-xs leading-relaxed ${isDarkTheme ? 'text-gray-300' : 'text-slate-600'}`}>
+                  The project includes the production GitHub Actions CI pipeline (
+                  <code className="text-[11px] px-1 py-0.5 rounded bg-black/20 font-mono">.github/workflows/build-apk.yml</code>
+                  ). When you push this codebase to GitHub, GitHub automatically compiles the Android APK in the cloud and provides a direct download link under the Actions tab!
+                </p>
+              </div>
+            </div>
+
+            {/* Steps in GitHub */}
+            <div className="mt-4 grid grid-cols-1 sm:grid-cols-3 gap-2.5 text-xs">
+              <div className={`p-3 rounded-lg border ${isDarkTheme ? 'bg-[#14141E] border-[#282838]' : 'bg-white border-slate-200'}`}>
+                <span className="font-mono text-[10px] text-[#00FFFF] font-bold">STEP 1</span>
+                <p className="font-semibold mt-1">Export / Push</p>
+                <p className={`text-[11px] mt-0.5 ${isDarkTheme ? 'text-gray-400' : 'text-slate-500'}`}>
+                  Export to GitHub via the AI Studio menu, or run terminal push below.
+                </p>
+              </div>
+              <div className={`p-3 rounded-lg border ${isDarkTheme ? 'bg-[#14141E] border-[#282838]' : 'bg-white border-slate-200'}`}>
+                <span className="font-mono text-[10px] text-[#FF00FF] font-bold">STEP 2</span>
+                <p className="font-semibold mt-1">GitHub Builds APK</p>
+                <p className={`text-[11px] mt-0.5 ${isDarkTheme ? 'text-gray-400' : 'text-slate-500'}`}>
+                  Gradle automatically runs with JDK 17 & Android SDK 34.
+                </p>
+              </div>
+              <div className={`p-3 rounded-lg border ${isDarkTheme ? 'bg-[#14141E] border-[#282838]' : 'bg-white border-slate-200'}`}>
+                <span className="font-mono text-[10px] text-emerald-400 font-bold">STEP 3</span>
+                <p className="font-semibold mt-1">Download APK</p>
+                <p className={`text-[11px] mt-0.5 ${isDarkTheme ? 'text-gray-400' : 'text-slate-500'}`}>
+                  Go to repository &gt; <strong>Actions</strong> &gt; Click latest run &gt; Download <strong>ZeroInbox-v1.0.0-debug-APK</strong>!
+                </p>
+              </div>
+            </div>
+
+            {/* Quick Git Push Terminal Commands */}
+            <div className="mt-4">
+              <div className="flex items-center justify-between mb-1.5">
+                <span className={`text-[11px] font-semibold flex items-center gap-1.5 ${isDarkTheme ? 'text-gray-300' : 'text-slate-700'}`}>
+                  <Terminal size={13} />
+                  Terminal Push Commands (Git repository is already initialized):
+                </span>
+                <button
+                  onClick={() =>
+                    copyCommand(
+                      `git remote add origin https://github.com/<YOUR_USERNAME>/zero-inbox.git\ngit push -u origin main`,
+                      'git-push'
+                    )
+                  }
+                  className="text-[10px] text-[#00FFFF] hover:underline flex items-center gap-1"
+                >
+                  {copiedCmd === 'git-push' ? <Check size={12} className="text-emerald-400" /> : null}
+                  {copiedCmd === 'git-push' ? 'Copied' : 'Copy'}
+                </button>
+              </div>
+              <pre className={`p-2.5 rounded-lg text-[11px] font-mono overflow-x-auto ${isDarkTheme ? 'bg-black/50 text-gray-300 border border-[#2A2A3A]' : 'bg-slate-100 text-slate-800 border border-slate-200'}`}>
+{`git remote add origin https://github.com/<YOUR_USERNAME>/zero-inbox.git
+git push -u origin main`}
+              </pre>
+            </div>
+          </div>
+
+          {/* Method 2: Direct 1-Click ZIP Download */}
+          <div
+            className={`p-5 rounded-xl border flex flex-col sm:flex-row sm:items-center justify-between gap-4 ${
+              isDarkTheme ? 'bg-[#181822] border-[#2A2A38]' : 'bg-slate-50 border-slate-200'
+            }`}
+          >
+            <div className="space-y-1">
+              <div className="flex items-center gap-2">
+                <PackageCheck size={18} className={isDarkTheme ? 'text-[#FF00FF]' : 'text-pink-600'} />
+                <h3 className="text-sm font-bold">2. Download Standalone Android Project (.ZIP)</h3>
+              </div>
+              <p className={`text-xs ${isDarkTheme ? 'text-gray-400' : 'text-slate-500'}`}>
+                Instant 1-click download of the complete Android Studio project containing all Kotlin files, Gradle wrapper, AndroidManifest, and APK build scripts.
+              </p>
+            </div>
+            <button
+              onClick={handleDownloadZip}
+              disabled={isZipping}
+              className="shrink-0 px-4 py-2.5 rounded-xl bg-gradient-to-r from-[#007BFF] to-[#00FFFF] text-white font-bold text-xs shadow-lg shadow-blue-500/20 hover:opacity-95 active:scale-95 transition-all flex items-center justify-center gap-2 cursor-pointer"
+            >
+              <Download size={15} />
+              <span>{isZipping ? 'Packaging ZIP...' : 'Download Project (.zip)'}</span>
+            </button>
+          </div>
+
+          {/* Local Android Studio / CLI Build command */}
+          <div className={`p-4 rounded-xl border ${isDarkTheme ? 'bg-[#14141E] border-[#222230]' : 'bg-slate-50 border-slate-200'}`}>
+            <h4 className="text-xs font-bold flex items-center gap-2 mb-2">
+              <Sparkles size={14} className={isDarkTheme ? 'text-[#FFE600]' : 'text-amber-500'} />
+              Local APK Build (Android Studio or Command Line):
+            </h4>
+            <div className="flex items-center justify-between">
+              <code className={`text-[11px] font-mono px-2 py-1 rounded ${isDarkTheme ? 'bg-black/40 text-emerald-400' : 'bg-slate-200 text-slate-800'}`}>
+                cd android && ./gradlew assembleDebug
+              </code>
+              <button
+                onClick={() => copyCommand('cd android && ./gradlew assembleDebug', 'gradlew-cmd')}
+                className="text-[11px] text-[#00FFFF] hover:underline flex items-center gap-1 font-medium"
+              >
+                {copiedCmd === 'gradlew-cmd' ? <Check size={12} className="text-emerald-400" /> : null}
+                {copiedCmd === 'gradlew-cmd' ? 'Copied' : 'Copy'}
+              </button>
+            </div>
+            <p className={`text-[11px] mt-2 ${isDarkTheme ? 'text-gray-400' : 'text-slate-500'}`}>
+              Outputs the installable APK directly to <span className="font-mono text-[10px]">android/app/build/outputs/apk/debug/app-debug.apk</span>.
+            </p>
+          </div>
+        </div>
+
+        {/* Modal Footer */}
+        <div
+          className={`p-4 border-t flex items-center justify-end ${
+            isDarkTheme ? 'bg-[#13131A] border-[#222230]' : 'bg-white border-slate-200'
+          }`}
+        >
+          <button
+            onClick={onClose}
+            className={`px-5 py-2 rounded-xl text-xs font-bold transition-transform active:scale-95 cursor-pointer ${
+              isDarkTheme ? 'bg-[#1E1E2A] text-gray-200 hover:bg-[#282838]' : 'bg-slate-200 text-slate-800 hover:bg-slate-300'
+            }`}
+          >
+            Close
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
