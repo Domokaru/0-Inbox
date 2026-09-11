@@ -154,7 +154,7 @@ fun SwipeableMailStack(
                 borderColor = secondaryAccent,
                 senderColor = primaryAccent,
                 onSwiped = { direction ->
-                    showPopupAndClear(direction, isDarkTheme) { activePopup = it }
+                    showPopupAndClear(direction, isDarkTheme, coroutineScope) { activePopup = it }
                     viewModel.processEmailSwipe(email, direction)
 
                     val actionLabel = when (direction) {
@@ -373,7 +373,6 @@ fun SwipeableMailStack(
 @Composable
 fun InfoCard(
     isDarkTheme: Boolean,
-    coroutineScope: kotlinx.coroutines.CoroutineScope,
     borderColor: Color,
     onClick: () -> Unit
 ) {
@@ -414,7 +413,6 @@ fun EmailCard(
     email: EmailModel,
     isTopCard: Boolean,
     isDarkTheme: Boolean,
-    coroutineScope: kotlinx.coroutines.CoroutineScope,
     cardSurface: Color,
     borderColor: Color,
     senderColor: Color,
@@ -588,7 +586,6 @@ private fun showPopupAndClear(
 @Composable
 fun SettingsDialog(
     isDarkTheme: Boolean,
-    coroutineScope: kotlinx.coroutines.CoroutineScope,
     onToggleTheme: (Boolean) -> Unit,
     onDismiss: () -> Unit
 ) {
@@ -642,7 +639,6 @@ fun LabelSelectionDialog(
     labels: List<LabelModel>,
     isRefreshing: Boolean,
     isDarkTheme: Boolean,
-    coroutineScope: kotlinx.coroutines.CoroutineScope,
     primaryAccent: Color,
     secondaryAccent: Color,
     onRefresh: () -> Unit,
