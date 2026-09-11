@@ -88,10 +88,6 @@ class MailViewModel(private val repository: GmailRepository) : ViewModel() {
         isInitialized = false
     }
 
-    fun clearError() {
-        _errorMessage.value = null
-    }
-
     private fun findAuthRecoveryIntent(throwable: Throwable?): Intent? {
         var current = throwable
         var depth = 0
