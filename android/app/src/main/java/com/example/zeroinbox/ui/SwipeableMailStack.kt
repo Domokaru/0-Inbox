@@ -34,11 +34,16 @@ import androidx.compose.material.icons.filled.Label
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Warning
+import androidx.compose.material.icons.filled.KeyboardArrowUp
+import androidx.compose.material.icons.filled.KeyboardArrowDown
+import androidx.compose.material.icons.filled.KeyboardArrowLeft
+import androidx.compose.material.icons.filled.KeyboardArrowRight
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -72,6 +77,7 @@ fun SwipeableMailStack(
     val isRefreshingLabels by viewModel.isRefreshingLabels.collectAsState()
     val currentAccount by viewModel.currentAccount.collectAsState()
     val isDemoMode by viewModel.isDemoMode.collectAsState()
+    val filterTwoDays by viewModel.filterTwoDays.collectAsState()
     val errorMessage by viewModel.errorMessage.collectAsState()
 
     val coroutineScope = rememberCoroutineScope()
@@ -362,7 +368,9 @@ fun SwipeableMailStack(
                     borderColor = secondaryAccent,
                     senderColor = primaryAccent,
                     onSwiped = { direction ->
-                        showPopupAndClear(direction, isDarkTheme, coroutineScope) { activePopup = it }
+                        if (direction != SwipeDirection.LEFT) {
+                            showPopupAndClear(direction, isDarkTheme, coroutineScope) { activePopup = it }
+                        }
                         viewModel.processEmailSwipe(email, direction)
 
                         val actionLabel = when (direction) {
@@ -401,7 +409,7 @@ fun SwipeableMailStack(
                     .padding(bottom = 128.dp)
             )
 
-            // Bottom Action Bar: 5 quick-action buttons including Custom Label (No Swipe required)
+            // Bottom Action Bar: 5 quick-action buttons including Custom Label
             Row(
                 modifier = Modifier
                     .align(Alignment.BottomCenter)
@@ -410,24 +418,8 @@ fun SwipeableMailStack(
                 horizontalArrangement = Arrangement.SpaceEvenly,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                // 1. Delete (Left)
-                IconButton(
-                    onClick = {
-                        if (emails.isNotEmpty()) {
-                            val email = emails.last()
-                            showPopupAndClear(SwipeDirection.LEFT, isDarkTheme, coroutineScope) { activePopup = it }
-                            viewModel.processEmailSwipe(email, SwipeDirection.LEFT)
-                        }
-                    },
-                    modifier = Modifier
-                        .size(42.dp)
-                        .background(if (isDarkTheme) Color(0x22FF3366) else Color(0x15EF4444), CircleShape)
-                        .border(1.dp, if (isDarkTheme) Color(0x66FF3366) else Color(0x44EF4444), CircleShape)
-                ) {
-                    Icon(Icons.Default.Delete, contentDescription = "Delete", tint = if (isDarkTheme) Color(0xFFFF3366) else Color(0xFFEF4444))
-                }
-
-                // 2. Needs Update (Up)
+                // 1. Pen icon (Needs Update) - Neon Green
+                val penColor = if (isDarkTheme) Color(0xFF39FF14) else Color(0xFF22C55E)
                 IconButton(
                     onClick = {
                         if (emails.isNotEmpty()) {
@@ -438,28 +430,26 @@ fun SwipeableMailStack(
                     },
                     modifier = Modifier
                         .size(42.dp)
-                        .background(if (isDarkTheme) Color(0x22FF00FF) else Color(0x15EC4899), CircleShape)
-                        .border(1.dp, if (isDarkTheme) Color(0x66FF00FF) else Color(0x44EC4899), CircleShape)
+                        .background(penColor.copy(alpha = 0.15f), CircleShape)
+                        .border(1.dp, penColor.copy(alpha = 0.4f), CircleShape)
                 ) {
-                    Icon(Icons.Default.Edit, contentDescription = "Needs Update", tint = secondaryAccent)
+                    Box(modifier = Modifier.fillMaxSize()) {
+                        Icon(
+                            Icons.Default.KeyboardArrowUp,
+                            contentDescription = null,
+                            tint = penColor.copy(alpha = 0.7f),
+                            modifier = Modifier.align(Alignment.TopCenter).padding(top = 2.dp).size(14.dp)
+                        )
+                        Icon(
+                            Icons.Default.Edit, 
+                            contentDescription = "Needs Update", 
+                            tint = penColor,
+                            modifier = Modifier.align(Alignment.Center)
+                        )
+                    }
                 }
 
-                // 3. Assign Custom Label (NO SWIPE ACTIVITY - Long press or tap button opens Gmail labels dialog)
-                IconButton(
-                    onClick = {
-                        if (emails.isNotEmpty()) {
-                            emailForLabelDialog = emails.last()
-                        }
-                    },
-                    modifier = Modifier
-                        .size(48.dp)
-                        .background(if (isDarkTheme) Color(0x3300FFFF) else Color(0x220EA5E9), CircleShape)
-                        .border(2.dp, primaryAccent, CircleShape)
-                ) {
-                    Icon(Icons.Default.DriveFileMove, contentDescription = "Assign Gmail Label", tint = primaryAccent)
-                }
-
-                // 4. Mark Read (Down)
+                // 2. Read icon (Mark Read)
                 IconButton(
                     onClick = {
                         if (emails.isNotEmpty()) {
@@ -473,10 +463,54 @@ fun SwipeableMailStack(
                         .background(if (isDarkTheme) Color(0x22007BFF) else Color(0x153B82F6), CircleShape)
                         .border(1.dp, if (isDarkTheme) Color(0x66007BFF) else Color(0x443B82F6), CircleShape)
                 ) {
-                    Icon(Icons.Default.Drafts, contentDescription = "Mark Read", tint = tertiaryAccent)
+                    Box(modifier = Modifier.fillMaxSize()) {
+                        Icon(
+                            Icons.Default.KeyboardArrowDown,
+                            contentDescription = null,
+                            tint = tertiaryAccent.copy(alpha = 0.7f),
+                            modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = 2.dp).size(14.dp)
+                        )
+                        Icon(
+                            Icons.Default.Drafts, 
+                            contentDescription = "Mark Read", 
+                            tint = tertiaryAccent,
+                            modifier = Modifier.align(Alignment.Center)
+                        )
+                    }
                 }
 
-                // 5. Archive (Right)
+                // 3. Trash icon (Delete) - Remove confirmation popup (showPopupAndClear)
+                IconButton(
+                    onClick = {
+                        if (emails.isNotEmpty()) {
+                            val email = emails.last()
+                            // Skipping showPopupAndClear for delete to remove confirmation popup
+                            viewModel.processEmailSwipe(email, SwipeDirection.LEFT)
+                        }
+                    },
+                    modifier = Modifier
+                        .size(42.dp)
+                        .background(if (isDarkTheme) Color(0x22FF3366) else Color(0x15EF4444), CircleShape)
+                        .border(1.dp, if (isDarkTheme) Color(0x66FF3366) else Color(0x44EF4444), CircleShape)
+                ) {
+                    val trashTint = if (isDarkTheme) Color(0xFFFF3366) else Color(0xFFEF4444)
+                    Box(modifier = Modifier.fillMaxSize()) {
+                        Icon(
+                            Icons.Default.KeyboardArrowLeft,
+                            contentDescription = null,
+                            tint = trashTint.copy(alpha = 0.7f),
+                            modifier = Modifier.align(Alignment.CenterStart).padding(start = 2.dp).size(14.dp)
+                        )
+                        Icon(
+                            Icons.Default.Delete, 
+                            contentDescription = "Delete", 
+                            tint = trashTint,
+                            modifier = Modifier.align(Alignment.Center)
+                        )
+                    }
+                }
+
+                // 4. Archive icon (Archive)
                 IconButton(
                     onClick = {
                         if (emails.isNotEmpty()) {
@@ -490,7 +524,36 @@ fun SwipeableMailStack(
                         .background(if (isDarkTheme) Color(0x2200FFFF) else Color(0x150EA5E9), CircleShape)
                         .border(1.dp, primaryAccent.copy(alpha = 0.4f), CircleShape)
                 ) {
-                    Icon(Icons.Default.Archive, contentDescription = "Archive", tint = primaryAccent)
+                    Box(modifier = Modifier.fillMaxSize()) {
+                        Icon(
+                            Icons.Default.KeyboardArrowRight,
+                            contentDescription = null,
+                            tint = primaryAccent.copy(alpha = 0.7f),
+                            modifier = Modifier.align(Alignment.CenterEnd).padding(end = 2.dp).size(14.dp)
+                        )
+                        Icon(
+                            Icons.Default.Archive, 
+                            contentDescription = "Archive", 
+                            tint = primaryAccent,
+                            modifier = Modifier.align(Alignment.Center)
+                        )
+                    }
+                }
+
+                // 5. Label icon (Assign Custom Label) - Neon Purple, similar border
+                val labelColor = if (isDarkTheme) Color(0xFFB026FF) else Color(0xFFC026D3)
+                IconButton(
+                    onClick = {
+                        if (emails.isNotEmpty()) {
+                            emailForLabelDialog = emails.last()
+                        }
+                    },
+                    modifier = Modifier
+                        .size(42.dp)
+                        .background(labelColor.copy(alpha = 0.15f), CircleShape)
+                        .border(1.dp, labelColor.copy(alpha = 0.4f), CircleShape)
+                ) {
+                    Icon(Icons.Default.DriveFileMove, contentDescription = "Assign Gmail Label", tint = labelColor)
                 }
             }
         }
@@ -515,6 +578,7 @@ fun SwipeableMailStack(
             modifier = Modifier
                 .align(Alignment.BottomCenter)
                 .padding(bottom = 20.dp, start = 16.dp, end = 16.dp)
+                .scale(0.9f)
         ) { data ->
             Snackbar(
                 snackbarData = data,
@@ -597,9 +661,11 @@ fun SwipeableMailStack(
                 currentAccount = currentAccount,
                 isDemoMode = isDemoMode,
                 isDarkTheme = isDarkTheme,
+                filterTwoDays = filterTwoDays,
                 primaryAccent = primaryAccent,
                 secondaryAccent = secondaryAccent,
                 onToggleTheme = onToggleTheme,
+                onToggleFilter = { viewModel.setFilterTwoDays(it) },
                 onSwitchAccount = {
                     showSettingsDialog = false
                     showAccountSelectionDialog = true
@@ -840,9 +906,11 @@ fun SettingsDialog(
     currentAccount: String?,
     isDemoMode: Boolean,
     isDarkTheme: Boolean,
+    filterTwoDays: Boolean,
     primaryAccent: Color,
     secondaryAccent: Color,
     onToggleTheme: (Boolean) -> Unit,
+    onToggleFilter: (Boolean) -> Unit,
     onSwitchAccount: () -> Unit,
     onEnterEmailManually: () -> Unit,
     onEnableDemoMode: () -> Unit,
@@ -952,6 +1020,32 @@ fun SettingsDialog(
                     Switch(
                         checked = isDarkTheme,
                         onCheckedChange = { onToggleTheme(it) }
+                    )
+                }
+
+                Spacer(modifier = Modifier.height(16.dp))
+
+                // Last 2 Days Toggle
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = "Filter Emails",
+                            fontWeight = FontWeight.SemiBold,
+                            fontSize = 15.sp
+                        )
+                        Text(
+                            text = if (filterTwoDays) "Last 2 Days" else "All Inbox Mail",
+                            fontSize = 12.sp,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                    Switch(
+                        checked = filterTwoDays,
+                        onCheckedChange = { onToggleFilter(it) }
                     )
                 }
             }

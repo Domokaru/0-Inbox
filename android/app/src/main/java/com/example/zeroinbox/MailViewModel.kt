@@ -40,6 +40,19 @@ class MailViewModel(private val repository: GmailRepository) : ViewModel() {
     private val _isDemoMode = MutableStateFlow(false)
     val isDemoMode: StateFlow<Boolean> = _isDemoMode.asStateFlow()
 
+    private val _filterTwoDays = MutableStateFlow(true)
+    val filterTwoDays: StateFlow<Boolean> = _filterTwoDays.asStateFlow()
+
+    fun setFilterTwoDays(filter: Boolean) {
+        if (_filterTwoDays.value != filter) {
+            _filterTwoDays.value = filter
+            currentNextPageToken = null
+            _emails.value = emptyList()
+            _hasMore.value = true
+            loadNextBatch()
+        }
+    }
+
     private val _errorMessage = MutableStateFlow<String?>(null)
     val errorMessage: StateFlow<String?> = _errorMessage.asStateFlow()
 
@@ -140,7 +153,7 @@ class MailViewModel(private val repository: GmailRepository) : ViewModel() {
             _isLoading.value = true
             _errorMessage.value = null
             try {
-                val (newEmails, nextPageToken) = repository.fetchEmails(currentNextPageToken)
+                val (newEmails, nextPageToken) = repository.fetchEmails(currentNextPageToken, _filterTwoDays.value)
                 currentNextPageToken = nextPageToken
 
                 // In Compose Tinder stack, items at the end of the list are rendered on top

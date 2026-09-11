@@ -55,8 +55,10 @@ export const googleSignIn = async (): Promise<{ user: User; accessToken: string 
     }
     cachedAccessToken = credential.accessToken;
     return { user: result.user, accessToken: cachedAccessToken };
-  } catch (error) {
-    console.error('Sign-in error:', error);
+  } catch (error: any) {
+    if (error.code !== 'auth/popup-closed-by-user' && !error.message?.includes('popup-closed-by-user')) {
+      console.error('Sign-in error:', error);
+    }
     throw error;
   } finally {
     isSigningIn = false;
@@ -91,12 +93,16 @@ let cachedNeedsResponseLabelId: string | null = null;
 
 export async function fetchEmailsFromGmail(
   accessToken: string,
-  pageToken?: string
+  pageToken?: string,
+  filterTwoDays: boolean = true
 ): Promise<{ emails: WebEmail[]; nextPageToken?: string }> {
-  const query = encodeURIComponent(
-    'category:primary OR category:promotions OR category:social OR category:updates newer_than:2d'
-  );
-  let url = `https://gmail.googleapis.com/gmail/v1/users/me/messages?q=${query}&maxResults=15`;
+  const queryParts = ['(category:primary OR category:promotions OR category:social OR category:updates)'];
+  if (filterTwoDays) {
+    queryParts.push('newer_than:2d');
+  }
+  const query = encodeURIComponent(queryParts.join(' '));
+  
+  let url = `https://gmail.googleapis.com/gmail/v1/users/me/messages?q=${query}&maxResults=50`;
   if (pageToken) {
     url += `&pageToken=${encodeURIComponent(pageToken)}`;
   }
@@ -298,8 +304,14 @@ export async function removeNeedsResponseLabel(accessToken: string, threadId: st
 export async function applyCustomLabelToThread(
   accessToken: string,
   threadId: string,
-  labelId: string
+  labelId: string,
+  markAsRead: boolean = true
 ) {
+  const removeLabelIds = ['INBOX'];
+  if (markAsRead) {
+    removeLabelIds.push('UNREAD');
+  }
+  
   await fetch(`https://gmail.googleapis.com/gmail/v1/users/me/threads/${threadId}/modify`, {
     method: 'POST',
     headers: {
@@ -308,7 +320,7 @@ export async function applyCustomLabelToThread(
     },
     body: JSON.stringify({
       addLabelIds: [labelId],
-      removeLabelIds: ['INBOX', 'UNREAD'],
+      removeLabelIds,
     }),
   });
 }

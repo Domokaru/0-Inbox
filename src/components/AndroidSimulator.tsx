@@ -10,6 +10,8 @@ import {
   Sparkles,
   CheckCircle2,
   ChevronRight,
+  ChevronLeft,
+  ChevronUp,
   X,
   Sun,
   Moon,
@@ -147,6 +149,20 @@ const LABEL_COLORS = [
   '#14B8A6',
 ];
 
+const INBOX_ZERO_MESSAGES = [
+  "You Legend! Inbox zero looks ridiculously good on you!",
+  "You absolute BEAST! You didn’t clear your inbox, you conquered it!",
+  "Woah there, Overachiever! You just made unread messages extinct!",
+  "Okay, Hotshot! Zero emails, maximum swagger!",
+  "Look at you, Superstar! Your inbox never stood a chance!",
+  "Easy there, Champion! Save some productivity for the rest of us!",
+  "Well damn, Hero! You came, you saw, you archived!",
+  "You Magnificent Maniac! Nothing left to read, nothing left to fear!",
+  "Whoa, Inbox Slayer! You just sent every last message packing!",
+  "You glorious Show-Off! Inbox zero achieved like it was nothing!",
+  "HELL YEAH - Natural 20 Baby! You just rolled a critical hit on your inbox!"
+];
+
 type SwipeDirection = 'LEFT' | 'RIGHT' | 'UP' | 'DOWN';
 
 interface LastAction {
@@ -176,6 +192,7 @@ export default function AndroidSimulator({
   };
 
   const [showSettings, setShowSettings] = useState(false);
+  const [filterTwoDays, setFilterTwoDays] = useState(true);
   const [emails, setEmails] = useState<MockEmail[]>(INITIAL_DEMO_EMAILS);
   const [lastAction, setLastAction] = useState<LastAction | null>(null);
   const [activePopup, setActivePopup] = useState<{
@@ -195,6 +212,16 @@ export default function AndroidSimulator({
   const [isLiveGmailMode, setIsLiveGmailMode] = useState(false);
   const [isLoadingEmails, setIsLoadingEmails] = useState(false);
   const [authError, setAuthError] = useState<string | null>(null);
+  const [hasCheckedAuth, setHasCheckedAuth] = useState(false);
+  const [showLoginPrompt, setShowLoginPrompt] = useState(false);
+
+  useEffect(() => {
+    if (hasCheckedAuth && !currentUser) {
+      setShowLoginPrompt(true);
+    } else if (currentUser) {
+      setShowLoginPrompt(false);
+    }
+  }, [hasCheckedAuth, currentUser]);
 
   // Destructive Confirmation Modal state (required by Workspace policy)
   const [destructiveModal, setDestructiveModal] = useState<{
@@ -211,6 +238,7 @@ export default function AndroidSimulator({
   const [selectedLabelId, setSelectedLabelId] = useState<string>(DEFAULT_ACCOUNT_LABELS[0].id);
   const [isDropdownOpen, setIsDropdownOpen] = useState(false);
   const [labelSearchQuery, setLabelSearchQuery] = useState('');
+  const [markAsReadWithLabel, setMarkAsReadWithLabel] = useState(true);
 
   // Double tap detection ref for header
   const lastTapRef = useRef<number>(0);
@@ -252,10 +280,12 @@ export default function AndroidSimulator({
   }, [isDarkTheme]);
 
   // Track unread count and explode confetti when number hits 0
+  const [inboxZeroText, setInboxZeroText] = useState(INBOX_ZERO_MESSAGES[0]);
   const prevCountRef = useRef(emails.length);
   useEffect(() => {
     if (prevCountRef.current > 0 && emails.length === 0) {
       triggerNeonConfetti();
+      setInboxZeroText(INBOX_ZERO_MESSAGES[Math.floor(Math.random() * INBOX_ZERO_MESSAGES.length)]);
     }
     prevCountRef.current = emails.length;
   }, [emails.length, triggerNeonConfetti]);
@@ -267,7 +297,7 @@ export default function AndroidSimulator({
       setAuthError(null);
       try {
         const [emailResult, labelsResult] = await Promise.all([
-          fetchEmailsFromGmail(token),
+          fetchEmailsFromGmail(token, undefined, filterTwoDays),
           fetchLabelsFromGmail(token),
         ]);
 
@@ -311,7 +341,7 @@ export default function AndroidSimulator({
         setIsLoadingEmails(false);
       }
     },
-    []
+    [filterTwoDays]
   );
 
   // Initialize Firebase Auth listener
@@ -321,11 +351,13 @@ export default function AndroidSimulator({
         setCurrentUser(user);
         setAccessToken(token);
         loadRealGmailData(token);
+        setHasCheckedAuth(true);
       },
       () => {
         setCurrentUser(null);
         setAccessToken(null);
         setIsLiveGmailMode(false);
+        setHasCheckedAuth(true);
       }
     );
     return () => unsubscribe();
@@ -344,7 +376,10 @@ export default function AndroidSimulator({
       }
     } catch (err: any) {
       console.error('Sign-in failed:', err);
-      setAuthError(err.message || 'Google Sign-In failed');
+      // Ignore when user simply closes the popup
+      if (err.code !== 'auth/popup-closed-by-user' && !err.message?.includes('popup-closed-by-user')) {
+        setAuthError(err.message || 'Google Sign-In failed');
+      }
     } finally {
       setIsSigningInGoogle(false);
     }
@@ -405,13 +440,13 @@ export default function AndroidSimulator({
       ? {
           RIGHT: '#00FFFF', // Neon Cyan
           LEFT: '#FF3366', // Neon Red/Pink
-          UP: '#FF00FF', // Neon Magenta
+          UP: '#39FF14', // Neon Green (matches Pen button)
           DOWN: '#007BFF', // Electric Blue
         }[direction]
       : {
           RIGHT: '#0EA5E9',
           LEFT: '#F87171',
-          UP: '#EC4899',
+          UP: '#22C55E', // Green
           DOWN: '#3B82F6',
         }[direction];
 
@@ -461,11 +496,6 @@ export default function AndroidSimulator({
   };
 
   const handleSwipe = (email: MockEmail, direction: SwipeDirection) => {
-    // Workspace Policy: Destructive actions on user data REQUIRE explicit confirmation
-    if (direction === 'LEFT' && email.isReal) {
-      setDestructiveModal({ email });
-      return;
-    }
     executeSwipe(email, direction);
   };
 
@@ -499,7 +529,7 @@ export default function AndroidSimulator({
     // 2. Perform live Gmail action if connected
     if (emailToLabel.isReal && accessToken) {
       const threadId = emailToLabel.threadId || emailToLabel.id;
-      applyCustomLabelToThread(accessToken, threadId, targetId).catch(console.error);
+      applyCustomLabelToThread(accessToken, threadId, targetId, markAsReadWithLabel).catch(console.error);
     }
 
     // 3. Remove email locally (triaged to destination label)
@@ -510,7 +540,7 @@ export default function AndroidSimulator({
       email: emailToLabel,
       customLabel: labelName,
       customLabelId: targetId,
-      label: `Moved to "${labelName}" & marked read`,
+      label: `Moved to "${labelName}"${markAsReadWithLabel ? ' & marked read' : ''}`,
     });
     setSnackbarVisible(true);
 
@@ -551,7 +581,7 @@ export default function AndroidSimulator({
     if (isLiveGmailMode && accessToken) {
       setIsLoadingEmails(true);
       try {
-        const result = await fetchEmailsFromGmail(accessToken, nextPageToken);
+        const result = await fetchEmailsFromGmail(accessToken, nextPageToken, filterTwoDays);
         if (result.emails.length > 0) {
           const formatted: MockEmail[] = result.emails.map((e) => ({
             id: e.id,
@@ -666,42 +696,6 @@ export default function AndroidSimulator({
 
       {/* Phone Hardware Shell with outer quick controls */}
       <div className="flex flex-col items-center">
-        {/* Quick Simulator Header Controls */}
-        <div className="w-[380px] flex items-center justify-between px-2 mb-3">
-          <button
-            onClick={() => setIsDarkTheme(!isDarkTheme)}
-            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl border text-xs font-semibold shadow-sm transition-all ${
-              isDarkTheme
-                ? 'bg-[#15151A] border-[#2E2E3C] text-gray-200 hover:border-[#00FFFF]'
-                : 'bg-white border-slate-300 text-slate-800 hover:border-sky-500'
-            }`}
-            title="Toggle between Neon Dark and Pastel Light"
-          >
-            {isDarkTheme ? (
-              <>
-                <Sun size={14} className="text-amber-400" />
-                <span>Pastel Light Mode</span>
-              </>
-            ) : (
-              <>
-                <Moon size={14} className="text-indigo-600" />
-                <span>Neon Dark Mode</span>
-              </>
-            )}
-          </button>
-
-          <button
-            onClick={() => setShowSettings(true)}
-            className={`px-3 py-1.5 rounded-xl border text-xs font-semibold shadow-sm transition-all ${
-              isDarkTheme
-                ? 'bg-[#15151A] border-[#2E2E3C] text-gray-300 hover:text-white'
-                : 'bg-white border-slate-300 text-slate-700 hover:text-slate-900'
-            }`}
-          >
-            Settings
-          </button>
-        </div>
-
         <div
           className={`relative w-[380px] h-[740px] ${canvasBg} rounded-[48px] border-4 ${deviceBorder} shadow-[0_0_50px_rgba(0,123,255,0.15)] flex flex-col overflow-hidden select-none transition-colors duration-300`}
         >
@@ -830,9 +824,7 @@ export default function AndroidSimulator({
                     0 INBOX
                   </h3>
                   <p className={`text-xs ${isDarkTheme ? 'text-gray-400' : 'text-slate-500'}`}>
-                    {isLiveGmailMode
-                      ? 'All emails in your Gmail inbox have been triaged!'
-                      : 'All demo emails have been processed!'}
+                    {inboxZeroText}
                   </p>
                 </motion.div>
 
@@ -985,7 +977,7 @@ export default function AndroidSimulator({
                     isDarkTheme
                       ? 'bg-[#1B1B26] border-[#007BFF]'
                       : 'bg-[#F1F5F9] border-[#60A5FA]'
-                  } border rounded-2xl p-3 shadow-2xl flex items-center justify-between gap-2`}
+                  } border rounded-2xl p-2.5 shadow-2xl flex items-center justify-between gap-2 scale-95`}
                 >
                   <div className="flex items-center gap-2 overflow-hidden">
                     <CheckCircle2
@@ -1050,31 +1042,9 @@ export default function AndroidSimulator({
                         </div>
                         <div>
                           <h3 className="font-bold text-sm leading-tight">Assign Label</h3>
-                          <div className="flex items-center gap-1.5 text-[10px] text-gray-400">
-                            <span>
-                              {isLiveGmailMode ? 'Live Gmail Labels' : 'Gmail Account Labels'}
-                            </span>
-                          </div>
                         </div>
                       </div>
                       <div className="flex items-center gap-1">
-                        <button
-                          onClick={handleRefreshLabels}
-                          className={`p-1.5 rounded-lg border text-xs flex items-center gap-1 transition-all ${
-                            isDarkTheme
-                              ? 'bg-[#1E1E2C] border-[#313146] text-gray-300 hover:text-white'
-                              : 'bg-slate-100 border-slate-200 text-slate-700 hover:bg-slate-200'
-                          }`}
-                          title="Refresh labels from Gmail account"
-                        >
-                          <RefreshCw
-                            size={12}
-                            className={isRefreshingLabels ? 'animate-spin text-[#00FFFF]' : ''}
-                          />
-                          <span className="text-[10px]">
-                            {isRefreshingLabels ? 'Syncing...' : lastRefreshedTime}
-                          </span>
-                        </button>
                         <button
                           onClick={() => setShowLabelModal(false)}
                           className="p-1.5 rounded-lg hover:bg-gray-500/20 text-gray-400 hover:text-gray-200"
@@ -1231,16 +1201,38 @@ export default function AndroidSimulator({
                           Apply label <strong>{selectedLabel?.name}</strong>
                         </span>
                       </div>
+                      <button
+                        onClick={() => setMarkAsReadWithLabel(!markAsReadWithLabel)}
+                        className={`w-full flex items-center justify-between text-left transition-colors ${
+                          markAsReadWithLabel ? 'text-emerald-500' : 'text-gray-400'
+                        } font-medium`}
+                      >
+                        <div className="flex items-center gap-2">
+                          <Check size={13} className={`shrink-0 ${!markAsReadWithLabel && 'opacity-0'}`} />
+                          <span>
+                            Mark email as <strong>Read</strong>
+                          </span>
+                        </div>
+                        <div
+                          className={`w-8 h-4 rounded-full flex items-center p-0.5 transition-colors ${
+                            markAsReadWithLabel
+                              ? 'bg-emerald-500'
+                              : isDarkTheme
+                              ? 'bg-gray-700'
+                              : 'bg-slate-300'
+                          }`}
+                        >
+                          <div
+                            className={`w-3 h-3 rounded-full bg-white transition-transform ${
+                              markAsReadWithLabel ? 'translate-x-4' : 'translate-x-0'
+                            }`}
+                          />
+                        </div>
+                      </button>
                       <div className="flex items-center gap-2 text-emerald-500 font-medium">
                         <Check size={13} className="shrink-0" />
                         <span>
-                          Mark email as <strong>Read</strong>
-                        </span>
-                      </div>
-                      <div className="flex items-center gap-2 text-emerald-500 font-medium">
-                        <Check size={13} className="shrink-0" />
-                        <span>
-                          Move from <strong>Inbox</strong> (Archived to Label)
+                          Move from <strong>Inbox</strong>
                         </span>
                       </div>
                     </div>
@@ -1249,18 +1241,13 @@ export default function AndroidSimulator({
                     <div className="flex items-center gap-2.5 pt-1">
                       <button
                         onClick={() => setShowLabelModal(false)}
-                        className={`flex-1 py-2.5 rounded-xl text-xs font-semibold border transition-colors ${
-                          isDarkTheme
-                            ? 'border-[#383850] text-gray-300 hover:bg-[#1E1E2C]'
-                            : 'border-slate-300 text-slate-700 hover:bg-slate-100'
-                        }`}
+                        className="flex-1 py-2.5 rounded-xl text-xs font-bold text-white shadow-lg transition-transform active:scale-95 border-none bg-[#FF3366] hover:bg-[#FF3366]/90"
                       >
                         Cancel
                       </button>
                       <button
                         onClick={() => handleApplyLabel()}
-                        className="flex-1 py-2.5 rounded-xl text-xs font-bold text-white shadow-lg transition-transform active:scale-95 flex items-center justify-center gap-1.5"
-                        style={{ backgroundColor: primaryAccent }}
+                        className="flex-1 py-2.5 rounded-xl text-xs font-bold text-white shadow-lg transition-transform active:scale-95 flex items-center justify-center gap-1.5 border-none bg-[#FF00FF] hover:bg-[#FF00FF]/90"
                       >
                         <FolderInput size={14} />
                         <span>Apply & Move</span>
@@ -1380,6 +1367,49 @@ export default function AndroidSimulator({
                         </div>
                       </div>
 
+                      {/* Filter Toggle */}
+                      <div>
+                        <label className="text-xs font-semibold text-gray-400 block mb-2 uppercase tracking-wider">
+                          Filter Emails
+                        </label>
+                        <div className="grid grid-cols-2 gap-2">
+                          <button
+                            onClick={() => {
+                              setFilterTwoDays(true);
+                              if (isLiveGmailMode && accessToken) loadRealGmailData(accessToken);
+                            }}
+                            className={`p-3 rounded-2xl border flex flex-col items-center gap-2 transition-all ${
+                              filterTwoDays
+                                ? isDarkTheme
+                                  ? 'bg-[#0F0F13] border-[#00FFFF] shadow-[0_0_15px_rgba(0,255,255,0.2)] text-white'
+                                  : 'bg-white border-[#0EA5E9] shadow-[0_0_15px_rgba(14,165,233,0.25)] text-slate-900'
+                                : isDarkTheme
+                                ? 'bg-gray-800/40 border-transparent text-gray-400 hover:text-white'
+                                : 'bg-slate-100 border-transparent text-slate-500 hover:text-slate-900'
+                            }`}
+                          >
+                            <span className="text-xs font-bold">Last 2 Days</span>
+                          </button>
+                          <button
+                            onClick={() => {
+                              setFilterTwoDays(false);
+                              if (isLiveGmailMode && accessToken) loadRealGmailData(accessToken);
+                            }}
+                            className={`p-3 rounded-2xl border flex flex-col items-center gap-2 transition-all ${
+                              !filterTwoDays
+                                ? isDarkTheme
+                                  ? 'bg-[#0F0F13] border-[#00FFFF] shadow-[0_0_15px_rgba(0,255,255,0.2)] text-white'
+                                  : 'bg-white border-[#0EA5E9] shadow-[0_0_15px_rgba(14,165,233,0.25)] text-slate-900'
+                                : isDarkTheme
+                                ? 'bg-gray-800/40 border-transparent text-gray-400 hover:text-white'
+                                : 'bg-slate-100 border-transparent text-slate-500 hover:text-slate-900'
+                            }`}
+                          >
+                            <span className="text-xs font-bold">All Inbox Mail</span>
+                          </button>
+                        </div>
+                      </div>
+
                       {/* Reset Demo Button */}
                       <div>
                         <button
@@ -1413,13 +1443,9 @@ export default function AndroidSimulator({
 
           {/* Small text indicating unread count: Under cards, above bottom icons */}
           <div
-            className={`py-2 px-4 text-center select-none flex items-center justify-between z-30 transition-colors ${
-              isDarkTheme
-                ? 'bg-[#0E0E14] text-gray-400 border-[#1E1E28]'
-                : 'bg-slate-50 text-slate-500 border-slate-200'
-            } border-t`}
+            className={`py-2 px-4 text-center select-none flex items-center justify-center z-30 transition-colors bg-transparent border-transparent`}
           >
-            <span className="text-[11px] font-medium tracking-wide">
+            <span className={`text-[11px] font-medium tracking-wide ${isDarkTheme ? 'text-gray-400' : 'text-slate-500'}`}>
               <strong
                 className="font-bold font-mono text-xs"
                 style={{
@@ -1435,17 +1461,6 @@ export default function AndroidSimulator({
               </strong>{' '}
               {emails.length === 1 ? 'email unread in inbox' : 'emails unread in inbox'}
             </span>
-
-            {isLiveGmailMode && accessToken && (
-              <button
-                onClick={() => loadRealGmailData(accessToken)}
-                disabled={isLoadingEmails}
-                className="flex items-center gap-1 text-[10px] font-semibold text-emerald-400 hover:text-emerald-300"
-              >
-                <RefreshCw size={11} className={isLoadingEmails ? 'animate-spin' : ''} />
-                <span>Sync</span>
-              </button>
-            )}
           </div>
 
           {/* Quick Trigger Buttons on Bottom */}
@@ -1454,78 +1469,90 @@ export default function AndroidSimulator({
               isDarkTheme ? 'bg-[#121218] border-[#1E1E28]' : 'bg-[#F8FAFC] border-slate-200'
             } border-t flex items-center justify-between z-30 transition-colors`}
           >
-            {/* 1. Delete (Swipe Left) */}
-            <button
-              title="Delete / Trash (Swipe Left)"
-              disabled={emails.length === 0}
-              onClick={() =>
-                emails.length > 0 && handleSwipe(emails[emails.length - 1], 'LEFT')
-              }
-              className={`w-10 h-10 rounded-full ${
-                isDarkTheme
-                  ? 'bg-[#FF3366]/10 border-[#FF3366]/40 text-[#FF3366]'
-                  : 'bg-red-50 border-red-200 text-red-500'
-              } border flex items-center justify-center transition-transform active:scale-95 disabled:opacity-40`}
-            >
-              <Trash2 size={18} />
-            </button>
-
-            {/* 2. Needs Response (Swipe Up) */}
+            {/* 1. Needs Response / Pen (Swipe Up) - Neon Green */}
             <button
               title="Needs Response (Swipe Up)"
               disabled={emails.length === 0}
               onClick={() => emails.length > 0 && handleSwipe(emails[emails.length - 1], 'UP')}
-              className={`w-10 h-10 rounded-full ${
+              className={`w-10 h-10 rounded-full relative ${
                 isDarkTheme
-                  ? 'bg-[#FF00FF]/10 border-[#FF00FF]/40 text-[#FF00FF]'
-                  : 'bg-pink-50 border-pink-200 text-pink-600'
+                  ? 'bg-[#39FF14]/10 border-[#39FF14]/40 text-[#39FF14]'
+                  : 'bg-green-50 border-green-200 text-green-600'
               } border flex items-center justify-center transition-transform active:scale-95 disabled:opacity-40`}
             >
+              <div className="absolute top-0 w-full flex justify-center -mt-0.5">
+                <ChevronUp size={13} strokeWidth={4} className="opacity-70" />
+              </div>
               <PenLine size={18} />
             </button>
 
-            {/* 3. Assign Custom Label */}
-            <button
-              title="Assign Label (or Long Press Card)"
-              disabled={emails.length === 0}
-              onClick={() => handleOpenLabelModal()}
-              className={`w-11 h-11 rounded-full ${
-                isDarkTheme
-                  ? 'bg-[#00FFFF]/15 border-[#00FFFF]/60 text-[#00FFFF] hover:bg-[#00FFFF]/25 shadow-[0_0_15px_rgba(0,255,255,0.25)]'
-                  : 'bg-sky-50 border-sky-300 text-sky-700 hover:bg-sky-100 shadow-sm'
-              } border-2 flex items-center justify-center transition-transform active:scale-95 disabled:opacity-40`}
-            >
-              <FolderInput size={20} />
-            </button>
-
-            {/* 4. Mark Read (Swipe Down) */}
+            {/* 2. Mark Read (Swipe Down) */}
             <button
               title="Mark Read (Swipe Down)"
               disabled={emails.length === 0}
               onClick={() => emails.length > 0 && handleSwipe(emails[emails.length - 1], 'DOWN')}
-              className={`w-10 h-10 rounded-full ${
+              className={`w-10 h-10 rounded-full relative ${
                 isDarkTheme
                   ? 'bg-[#007BFF]/10 border-[#007BFF]/40 text-[#007BFF]'
                   : 'bg-blue-50 border-blue-200 text-blue-600'
               } border flex items-center justify-center transition-transform active:scale-95 disabled:opacity-40`}
             >
               <MailOpen size={18} />
+              <div className="absolute bottom-0 w-full flex justify-center -mb-0.5">
+                <ChevronDown size={13} strokeWidth={4} className="opacity-70" />
+              </div>
             </button>
 
-            {/* 5. Archive (Swipe Right) */}
+            {/* 3. Delete / Trash (Swipe Left) */}
+            <button
+              title="Delete / Trash (Swipe Left)"
+              disabled={emails.length === 0}
+              onClick={() =>
+                emails.length > 0 && handleSwipe(emails[emails.length - 1], 'LEFT')
+              }
+              className={`w-10 h-10 rounded-full relative ${
+                isDarkTheme
+                  ? 'bg-[#FF3366]/10 border-[#FF3366]/40 text-[#FF3366]'
+                  : 'bg-red-50 border-red-200 text-red-500'
+              } border flex items-center justify-center transition-transform active:scale-95 disabled:opacity-40`}
+            >
+              <div className="absolute left-0 h-full flex items-center -ml-0.5">
+                <ChevronLeft size={13} strokeWidth={4} className="opacity-70" />
+              </div>
+              <Trash2 size={18} />
+            </button>
+
+            {/* 4. Archive (Swipe Right) */}
             <button
               title="Archive (Swipe Right)"
               disabled={emails.length === 0}
               onClick={() =>
                 emails.length > 0 && handleSwipe(emails[emails.length - 1], 'RIGHT')
               }
-              className={`w-10 h-10 rounded-full ${
+              className={`w-10 h-10 rounded-full relative ${
                 isDarkTheme
                   ? 'bg-[#00FFFF]/10 border-[#00FFFF]/40 text-[#00FFFF]'
                   : 'bg-sky-50 border-sky-200 text-sky-600'
               } border flex items-center justify-center transition-transform active:scale-95 disabled:opacity-40`}
             >
               <Archive size={18} />
+              <div className="absolute right-0 h-full flex items-center -mr-0.5">
+                <ChevronRight size={13} strokeWidth={4} className="opacity-70" />
+              </div>
+            </button>
+
+            {/* 5. Assign Custom Label - Neon Purple, matching 10x10 size and 1px border weight */}
+            <button
+              title="Assign Label (or Long Press Card)"
+              disabled={emails.length === 0}
+              onClick={() => handleOpenLabelModal()}
+              className={`w-10 h-10 rounded-full ${
+                isDarkTheme
+                  ? 'bg-[#B026FF]/10 border-[#B026FF]/40 text-[#B026FF]'
+                  : 'bg-fuchsia-50 border-fuchsia-200 text-fuchsia-600'
+              } border flex items-center justify-center transition-transform active:scale-95 disabled:opacity-40`}
+            >
+              <FolderInput size={18} />
             </button>
           </div>
 
@@ -1542,185 +1569,65 @@ export default function AndroidSimulator({
         </div>
       </div>
 
-      {/* Side Information Box */}
-      <div
-        className={`max-w-md ${
-          isDarkTheme
-            ? 'bg-[#15151A] border-[#1E1E28] text-gray-300'
-            : 'bg-white border-slate-200 text-slate-700 shadow-xl'
-        } border rounded-2xl p-6 space-y-5 text-sm transition-colors`}
-      >
-        {/* Gmail Live Connection Card */}
-        <div
-          className={`p-4 rounded-2xl border ${
-            isLiveGmailMode
-              ? isDarkTheme
-                ? 'bg-emerald-500/10 border-emerald-500/30'
-                : 'bg-emerald-50 border-emerald-300'
-              : isDarkTheme
-              ? 'bg-[#1C1C28] border-[#2A2A3E]'
-              : 'bg-slate-50 border-slate-200'
-          } space-y-3`}
-        >
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-2">
-              <Mail
-                size={18}
-                className={isLiveGmailMode ? 'text-emerald-400' : 'text-sky-500'}
-              />
-              <span className="font-bold text-xs">
-                {isLiveGmailMode ? 'Gmail Connected (Live)' : 'Gmail Integration'}
-              </span>
-            </div>
-            {isLiveGmailMode && (
-              <span className="flex items-center gap-1 text-[10px] font-mono text-emerald-400 px-2 py-0.5 rounded-full bg-emerald-500/15 border border-emerald-500/30">
-                <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-ping" />
-                LIVE
-              </span>
-            )}
-          </div>
-
-          {isLiveGmailMode && currentUser ? (
-            <div className="space-y-2">
-              <div className="text-xs">
-                <p className="font-semibold text-white truncate">{currentUser.displayName || 'Google Account'}</p>
-                <p className="text-[11px] text-gray-400 font-mono truncate">{currentUser.email}</p>
-              </div>
-              <div className="flex items-center gap-2 pt-1">
-                <button
-                  onClick={() => accessToken && loadRealGmailData(accessToken)}
-                  disabled={isLoadingEmails}
-                  className="px-3 py-1.5 rounded-xl text-xs font-semibold bg-emerald-600 hover:bg-emerald-500 text-white flex items-center gap-1.5 transition-all"
-                >
-                  <RefreshCw size={12} className={isLoadingEmails ? 'animate-spin' : ''} />
-                  <span>Sync Inbox</span>
-                </button>
-                <button
-                  onClick={handleGoogleLogout}
-                  className="px-3 py-1.5 rounded-xl text-xs font-semibold border border-red-500/30 text-red-400 hover:bg-red-500/10 transition-colors"
-                >
-                  Sign Out
-                </button>
-              </div>
-            </div>
-          ) : (
-            <div className="space-y-2.5">
-              <p className="text-xs text-gray-400 leading-relaxed">
-                Connect your real Gmail account with OAuth 2.0 to triage your live messages right inside the simulator.
-              </p>
-              <GoogleSignInButton
-                onClick={handleGoogleSignIn}
-                disabled={isSigningInGoogle}
-                isDarkTheme={isDarkTheme}
-                label={isSigningInGoogle ? 'Connecting...' : 'Sign in with Google'}
-                size="md"
-                className="w-full"
-              />
-              {authError && (
-                <div className="flex items-center gap-1.5 text-xs text-red-400">
-                  <AlertCircle size={14} className="shrink-0" />
-                  <span>{authError}</span>
-                </div>
-              )}
-            </div>
-          )}
-        </div>
-
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-2 font-bold text-base" style={{ color: primaryAccent }}>
-            <Sparkles size={20} />
-            <span>0 INBOX Architecture</span>
-          </div>
-          <button
-            onClick={() => setShowSettings(true)}
-            className={`text-xs px-2.5 py-1 rounded-lg ${
-              isDarkTheme
-                ? 'bg-[#22222E] hover:bg-[#2A2A38] text-white border-[#333344]'
-                : 'bg-slate-100 hover:bg-slate-200 text-slate-800 border-slate-300'
-            } border transition-colors`}
+      {/* Startup Login Prompt Overlay */}
+      <AnimatePresence>
+        {showLoginPrompt && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-[100] flex items-center justify-center p-6 bg-black/60 backdrop-blur-md"
           >
-            Open Settings
-          </button>
-        </div>
-
-        <p className={`leading-relaxed text-xs ${isDarkTheme ? 'text-gray-300' : 'text-slate-600'}`}>
-          <strong>Actions & Gestures:</strong>
-        </p>
-        <ul className={`space-y-2.5 text-xs ${isDarkTheme ? 'text-gray-300' : 'text-slate-600'}`}>
-          <li className="flex items-start gap-2">
-            <span
-              className={`px-1.5 py-0.5 rounded font-mono shrink-0 ${
-                isDarkTheme ? 'bg-[#00FFFF]/15 text-[#00FFFF]' : 'bg-sky-100 text-sky-700'
+            <motion.div
+              initial={{ scale: 0.95, y: 20 }}
+              animate={{ scale: 1, y: 0 }}
+              exit={{ scale: 0.95, y: 20 }}
+              className={`max-w-md w-full p-8 rounded-3xl border shadow-2xl space-y-6 ${
+                isDarkTheme
+                  ? 'bg-[#15151A] border-[#2A2A3E] text-white'
+                  : 'bg-white border-slate-200 text-slate-800'
               }`}
             >
-              SWIPE RIGHT
-            </span>
-            <span>
-              <strong>Archive</strong> email in Gmail (removes from Inbox and marks as triaged).
-            </span>
-          </li>
-          <li className="flex items-start gap-2">
-            <span
-              className={`px-1.5 py-0.5 rounded font-mono shrink-0 ${
-                isDarkTheme ? 'bg-[#FF3366]/15 text-[#FF3366]' : 'bg-red-100 text-red-700'
-              }`}
-            >
-              SWIPE LEFT
-            </span>
-            <span>
-              <strong>Trash</strong> email in Gmail with a mandatory confirmation dialog to protect user data.
-            </span>
-          </li>
-          <li className="flex items-start gap-2">
-            <span
-              className={`px-1.5 py-0.5 rounded font-mono shrink-0 ${
-                isDarkTheme ? 'bg-[#FF00FF]/15 text-[#FF00FF]' : 'bg-pink-100 text-pink-700'
-              }`}
-            >
-              SWIPE UP
-            </span>
-            <span>
-              Apply <strong>Needs Response</strong> label and mark read in your Gmail account.
-            </span>
-          </li>
-          <li className="flex items-start gap-2">
-            <span
-              className={`px-1.5 py-0.5 rounded font-mono shrink-0 ${
-                isDarkTheme ? 'bg-[#007BFF]/15 text-[#007BFF]' : 'bg-blue-100 text-blue-700'
-              }`}
-            >
-              SWIPE DOWN
-            </span>
-            <span>
-              <strong>Mark as Read</strong> in Gmail without archiving.
-            </span>
-          </li>
-          <li className="flex items-start gap-2">
-            <span
-              className={`px-1.5 py-0.5 rounded font-mono shrink-0 ${
-                isDarkTheme ? 'bg-[#10B981]/15 text-[#10B981]' : 'bg-emerald-100 text-emerald-700'
-              }`}
-            >
-              LONG PRESS
-            </span>
-            <span>
-              <strong>Long press on any card</strong> (or tap center bottom icon) to assign any of your live Gmail labels.
-            </span>
-          </li>
-          <li className="flex items-start gap-2">
-            <span
-              className={`px-1.5 py-0.5 rounded font-mono shrink-0 ${
-                isDarkTheme ? 'bg-amber-500/15 text-amber-400' : 'bg-amber-100 text-amber-700'
-              }`}
-            >
-              UNDO
-            </span>
-            <span>
-              Material 3 Snackbar undo immediately reverses the Gmail REST API operation.
-            </span>
-          </li>
-        </ul>
-      </div>
+              <div className="flex justify-center">
+                <div className={`p-4 rounded-2xl ${isDarkTheme ? 'bg-[#1C1C28]' : 'bg-slate-100'}`}>
+                  <Mail size={40} className={isDarkTheme ? 'text-[#00FFFF]' : 'text-[#0EA5E9]'} />
+                </div>
+              </div>
+              <div className="text-center space-y-2">
+                <h2 className="text-2xl font-bold tracking-tight">Welcome to 0 INBOX</h2>
+                <p className={`text-sm ${isDarkTheme ? 'text-gray-400' : 'text-slate-500'}`}>
+                  Connect your real Gmail account to start securely triaging your live messages with intuitive swipe gestures.
+                </p>
+              </div>
+              <div className="pt-2 space-y-3">
+                <GoogleSignInButton
+                  onClick={handleGoogleSignIn}
+                  disabled={isSigningInGoogle}
+                  isDarkTheme={isDarkTheme}
+                  label={isSigningInGoogle ? 'Connecting...' : 'Connect Gmail Account'}
+                  size="lg"
+                  className="w-full"
+                />
+                {authError && (
+                  <div className="flex items-center justify-center gap-2 text-xs text-red-400 bg-red-400/10 p-3 rounded-xl border border-red-400/20">
+                    <AlertCircle size={15} className="shrink-0" />
+                    <span className="text-center">{authError}</span>
+                  </div>
+                )}
+                {/* Fallback for testing UI without login */}
+                <button
+                  onClick={() => setShowLoginPrompt(false)}
+                  className={`w-full py-3 text-xs font-semibold underline underline-offset-4 opacity-60 hover:opacity-100 transition-opacity ${
+                    isDarkTheme ? 'text-gray-400' : 'text-slate-500'
+                  }`}
+                >
+                  Skip for now (Use Demo Data)
+                </button>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   );
 }

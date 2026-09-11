@@ -21,9 +21,9 @@ import kotlinx.coroutines.launch
 class MainActivity : ComponentActivity() {
 
     private val authManager by lazy { AuthManager(this) }
-    private val viewModel: MailViewModel by viewModels { 
-        MailViewModelFactory(GmailRepository(this)) 
-    }
+    private val viewModel: MailViewModel by viewModels(
+        factoryProducer = { MailViewModelFactory(GmailRepository(this)) }
+    )
 
     // Launcher for system Google Account Chooser
     private val accountPickerLauncher = registerForActivityResult(

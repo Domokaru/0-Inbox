@@ -49,15 +49,20 @@ class GmailRepository(private val context: Context) {
         ).setApplicationName("Zero Inbox").build()
     }
 
-    suspend fun fetchEmails(pageToken: String? = null): Pair<List<EmailModel>, String?> = withContext(Dispatchers.IO) {
+    suspend fun fetchEmails(pageToken: String? = null, filterTwoDays: Boolean = true): Pair<List<EmailModel>, String?> = withContext(Dispatchers.IO) {
         val service = gmailService ?: throw IllegalStateException("Gmail service not initialized. Please connect your Gmail account.")
 
         // Primary inbox query: retrieves all messages currently residing in the user's INBOX
-        val listResponse = service.users().messages().list("me")
+        var request = service.users().messages().list("me")
             .setLabelIds(listOf("INBOX"))
-            .setMaxResults(20L)
+            .setMaxResults(50L)
             .setPageToken(pageToken)
-            .execute()
+            
+        if (filterTwoDays) {
+            request = request.setQ("newer_than:2d")
+        }
+        
+        val listResponse = request.execute()
 
         val messages = listResponse.messages ?: emptyList()
         val emailModels = messages.mapNotNull { msgMeta ->
