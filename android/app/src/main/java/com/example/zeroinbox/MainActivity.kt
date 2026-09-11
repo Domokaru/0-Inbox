@@ -29,7 +29,7 @@ class MainActivity : ComponentActivity() {
     private val accountPickerLauncher = registerForActivityResult(
         ActivityResultContracts.StartActivityForResult()
     ) { result ->
-        if (result.resultCode == RESULT_OK && result.data != null) {
+        if (result.resultCode == android.app.Activity.RESULT_OK && result.data != null) {
             val accountName = result.data?.getStringExtra(AccountManager.KEY_ACCOUNT_NAME)
                 ?: result.data?.getStringExtra("authAccount")
             if (!accountName.isNullOrBlank()) {

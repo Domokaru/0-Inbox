@@ -4,7 +4,6 @@ import android.content.Intent
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
-import com.google.android.gms.auth.GooglePlayServicesAvailabilityException
 import com.google.android.gms.auth.UserRecoverableAuthException
 import com.google.api.client.googleapis.extensions.android.gms.auth.UserRecoverableAuthIOException
 import kotlinx.coroutines.flow.MutableSharedFlow
@@ -100,7 +99,6 @@ class MailViewModel(private val repository: GmailRepository) : ViewModel() {
             when (current) {
                 is UserRecoverableAuthIOException -> return current.intent
                 is UserRecoverableAuthException -> return current.intent
-                is GooglePlayServicesAvailabilityException -> return current.intent
             }
             current = current.cause
             depth++

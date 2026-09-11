@@ -9,6 +9,7 @@ import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.*
@@ -134,11 +135,10 @@ fun SwipeableMailStack(
             // Active Account / Demo Indicator Chip
             if (currentAccount != null || isDemoMode) {
                 Surface(
-                    onClick = { showSettingsDialog = true },
                     shape = RoundedCornerShape(16.dp),
                     color = if (isDarkTheme) Color(0xFF1E1E28) else Color(0xFFF1F5F9),
                     border = BorderStroke(1.dp, tertiaryAccent.copy(alpha = 0.5f)),
-                    modifier = Modifier.padding(top = 4.dp)
+                    modifier = Modifier.padding(top = 4.dp).clickable { showSettingsDialog = true }
                 ) {
                     Row(
                         modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
@@ -1021,13 +1021,13 @@ fun AccountSelectionDialog(
                     Spacer(modifier = Modifier.height(6.dp))
                     availableAccounts.forEach { acc ->
                         Surface(
-                            onClick = { onSelectAccount(acc) },
                             shape = RoundedCornerShape(10.dp),
                             color = if (isDarkTheme) Color(0xFF1E1E28) else Color(0xFFF1F5F9),
                             border = BorderStroke(1.dp, primaryAccent.copy(alpha = 0.5f)),
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .padding(vertical = 3.dp)
+                                .clickable { onSelectAccount(acc) }
                         ) {
                             Row(
                                 modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
