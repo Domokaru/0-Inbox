@@ -965,11 +965,11 @@ fun SettingsDialog(
                     onClick = onShowSetupHelp,
                     modifier = Modifier.fillMaxWidth(),
                     shape = RoundedCornerShape(10.dp),
-                    border = BorderStroke(1.dp, secondaryAccent)
+                    border = BorderStroke(1.dp, primaryAccent)
                 ) {
-                    Icon(Icons.Default.Info, contentDescription = null, tint = secondaryAccent, modifier = Modifier.size(14.dp))
+                    Icon(Icons.Default.Info, contentDescription = null, tint = primaryAccent, modifier = Modifier.size(14.dp))
                     Spacer(modifier = Modifier.width(6.dp))
-                    Text("Google Cloud & OAuth Guide", color = secondaryAccent, fontWeight = FontWeight.SemiBold, fontSize = 12.sp)
+                    Text("Google Cloud & OAuth Guide", color = primaryAccent, fontWeight = FontWeight.SemiBold, fontSize = 12.sp)
                 }
 
                 Spacer(modifier = Modifier.height(8.dp))
