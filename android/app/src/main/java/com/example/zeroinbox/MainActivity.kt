@@ -1,8 +1,11 @@
 package com.example.zeroinbox
 
+import android.accounts.AccountManager
 import android.os.Bundle
+import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.viewModels
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.MaterialTheme
@@ -12,6 +15,7 @@ import androidx.compose.ui.Modifier
 import androidx.lifecycle.lifecycleScope
 import com.example.zeroinbox.ui.SwipeableMailStack
 import com.example.zeroinbox.ui.theme.ZeroInboxTheme
+import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
 
 class MainActivity : ComponentActivity() {
@@ -21,15 +25,44 @@ class MainActivity : ComponentActivity() {
         MailViewModelFactory(GmailRepository(this)) 
     }
 
+    // Launcher for system Google Account Chooser
+    private val accountPickerLauncher = registerForActivityResult(
+        ActivityResultContracts.StartActivityForResult()
+    ) { result ->
+        if (result.resultCode == RESULT_OK && result.data != null) {
+            val accountName = result.data?.getStringExtra(AccountManager.KEY_ACCOUNT_NAME)
+            if (!accountName.isNullOrBlank()) {
+                authManager.saveAccount(accountName)
+                viewModel.setAccount(accountName)
+                Toast.makeText(this, "Connected: $accountName", Toast.LENGTH_SHORT).show()
+            }
+        }
+    }
+
+    // Launcher for Google OAuth consent permission screen
+    private val authRecoveryLauncher = registerForActivityResult(
+        ActivityResultContracts.StartActivityForResult()
+    ) { result ->
+        if (result.resultCode == RESULT_OK) {
+            viewModel.onAuthRecoverySuccess()
+            Toast.makeText(this, "Permission granted!", Toast.LENGTH_SHORT).show()
+        }
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
-        // Initiate sign-in on launch via Credential Manager
+        // Observe OAuth recovery intents from GmailRepository / MailViewModel
         lifecycleScope.launch {
-            val accountName = authManager.signIn()
-            if (accountName != null) {
-                viewModel.initializeRepository(accountName)
+            viewModel.authRecoveryIntent.collectLatest { intent ->
+                authRecoveryLauncher.launch(intent)
             }
+        }
+
+        // Check if there is already a saved account from previous session
+        val savedAccount = authManager.getSavedAccount()
+        if (savedAccount != null) {
+            viewModel.initializeWithSavedAccount(savedAccount)
         }
 
         setContent {
@@ -43,10 +76,31 @@ class MainActivity : ComponentActivity() {
                     SwipeableMailStack(
                         viewModel = viewModel,
                         isDarkTheme = isDarkTheme,
-                        onToggleTheme = { isDarkTheme = it }
+                        onToggleTheme = { isDarkTheme = it },
+                        onLaunchAccountPicker = {
+                            try {
+                                accountPickerLauncher.launch(authManager.createAccountPickerIntent())
+                            } catch (e: Exception) {
+                                e.printStackTrace()
+                                Toast.makeText(
+                                    this,
+                                    "Could not open Google Account Chooser: ${e.message}",
+                                    Toast.LENGTH_LONG
+                                ).show()
+                            }
+                        },
+                        onManualAccountEntered = { email ->
+                            authManager.saveAccount(email)
+                            viewModel.setAccount(email)
+                        },
+                        onSignOut = {
+                            authManager.clearAccount()
+                            viewModel.signOut()
+                        }
                     )
                 }
             }
         }
     }
 }
+

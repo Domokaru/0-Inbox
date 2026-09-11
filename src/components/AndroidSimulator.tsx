@@ -18,8 +18,35 @@ import {
   RefreshCw,
   Check,
   Search,
+  LogOut,
+  Mail,
+  ShieldCheck,
+  AlertCircle,
+  Radio,
 } from 'lucide-react';
+import type { User } from 'firebase/auth';
 import PixelTitle from './PixelTitle';
+import GoogleSignInButton from './GoogleSignInButton';
+import DestructiveConfirmModal from './DestructiveConfirmModal';
+import {
+  googleSignIn,
+  logout,
+  initAuth,
+  fetchEmailsFromGmail,
+  fetchLabelsFromGmail,
+  archiveGmailThread,
+  trashGmailThread,
+  unarchiveGmailThread,
+  untrashGmailThread,
+  markGmailThreadRead,
+  markGmailThreadUnread,
+  applyNeedsResponseLabel,
+  removeNeedsResponseLabel,
+  applyCustomLabelToThread,
+  unapplyCustomLabelFromThread,
+  WebEmail,
+  WebLabel,
+} from '../services/gmailService';
 
 const BIG_PIXEL_ZERO_PATH = `
   M1 0 h3 v1 h-3 Z 
@@ -37,6 +64,8 @@ export interface MockEmail {
   subject: string;
   snippet: string;
   category: string;
+  threadId?: string;
+  isReal?: boolean;
 }
 
 export interface AccountLabel {
@@ -46,41 +75,51 @@ export interface AccountLabel {
   count?: number;
 }
 
-const INITIAL_EMAILS: MockEmail[] = [
+const INITIAL_DEMO_EMAILS: MockEmail[] = [
   {
     id: 'msg-1',
     sender: 'GitHub Notifications',
     subject: '[Google/Jetpack] Pull request #142 ready for review',
-    snippet: 'Hey Ben, your latest pull request containing the Credential Manager refactor passed all CI integration tests. Ready for merge.',
+    snippet:
+      'Hey Ben, your latest pull request containing the Credential Manager refactor passed all CI integration tests. Ready for merge.',
     category: 'Updates',
+    isReal: false,
   },
   {
     id: 'msg-2',
     sender: 'Google Cloud Platform',
     subject: 'Security Alert: New OAuth Client ID provisioned',
-    snippet: 'A new OAuth 2.0 Web Client ID was created for your project "0 INBOX Client" with the scope gmail.modify.',
+    snippet:
+      'A new OAuth 2.0 Web Client ID was created for your project "tidy-signifier-dlcf1" with the scope gmail.modify.',
     category: 'Primary',
+    isReal: false,
   },
   {
     id: 'msg-3',
     sender: 'TechCrunch Disrupt',
     subject: 'Early Bird passes: The future of AI & Mobile dev',
-    snippet: 'Save 40% on all stage passes before midnight tonight. Join top Android engineers discussing Jetpack Compose 1.8.',
+    snippet:
+      'Save 40% on all stage passes before midnight tonight. Join top Android engineers discussing Jetpack Compose 1.8.',
     category: 'Promotions',
+    isReal: false,
   },
   {
     id: 'msg-4',
     sender: 'Sarah Lin (Product Lead)',
     subject: 'Urgent: Sprint review demo this afternoon at 3 PM',
-    snippet: 'Can we sync for 10 minutes on the card gesture thresholds before we present to the executive team today?',
+    snippet:
+      'Can we sync for 10 minutes on the card gesture thresholds before we present to the executive team today?',
     category: 'Primary',
+    isReal: false,
   },
   {
     id: 'msg-5',
     sender: 'Figma Community',
     subject: 'New Neon & Pastel Theme Kit published for Compose',
-    snippet: 'Check out the latest neon color ramp, pastel light tokens, and interactive widget components built specifically for Android UI.',
+    snippet:
+      'Check out the latest neon color ramp, pastel light tokens, and interactive widget components built specifically for Android UI.',
     category: 'Social',
+    isReal: false,
   },
 ];
 
@@ -95,12 +134,26 @@ const DEFAULT_ACCOUNT_LABELS: AccountLabel[] = [
   { id: 'lbl-newsletters', name: 'Newsletters & Reads', color: '#3B82F6', count: 31 },
 ];
 
+const LABEL_COLORS = [
+  '#00FFFF',
+  '#FF00FF',
+  '#10B981',
+  '#F59E0B',
+  '#EC4899',
+  '#8B5CF6',
+  '#06B6D4',
+  '#3B82F6',
+  '#EF4444',
+  '#14B8A6',
+];
+
 type SwipeDirection = 'LEFT' | 'RIGHT' | 'UP' | 'DOWN';
 
 interface LastAction {
   email: MockEmail;
   direction?: SwipeDirection;
   customLabel?: string;
+  customLabelId?: string;
   label: string;
 }
 
@@ -123,20 +176,36 @@ export default function AndroidSimulator({
   };
 
   const [showSettings, setShowSettings] = useState(false);
-  const [emails, setEmails] = useState<MockEmail[]>(INITIAL_EMAILS);
+  const [emails, setEmails] = useState<MockEmail[]>(INITIAL_DEMO_EMAILS);
   const [lastAction, setLastAction] = useState<LastAction | null>(null);
   const [activePopup, setActivePopup] = useState<{
     icon: 'archive' | 'trash' | 'pen' | 'mail' | 'label';
     color: string;
   } | null>(null);
+
   const [hasMore, setHasMore] = useState(true);
+  const [nextPageToken, setNextPageToken] = useState<string | undefined>(undefined);
   const [batchCount, setBatchCount] = useState(1);
   const [snackbarVisible, setSnackbarVisible] = useState(false);
 
-  // Available Gmail Account Labels state
+  // Real Gmail Auth state
+  const [currentUser, setCurrentUser] = useState<User | null>(null);
+  const [accessToken, setAccessToken] = useState<string | null>(null);
+  const [isSigningInGoogle, setIsSigningInGoogle] = useState(false);
+  const [isLiveGmailMode, setIsLiveGmailMode] = useState(false);
+  const [isLoadingEmails, setIsLoadingEmails] = useState(false);
+  const [authError, setAuthError] = useState<string | null>(null);
+
+  // Destructive Confirmation Modal state (required by Workspace policy)
+  const [destructiveModal, setDestructiveModal] = useState<{
+    email: MockEmail;
+  } | null>(null);
+
+  // Available Account Labels state
   const [accountLabels, setAccountLabels] = useState<AccountLabel[]>(DEFAULT_ACCOUNT_LABELS);
   const [isRefreshingLabels, setIsRefreshingLabels] = useState(false);
   const [lastRefreshedTime, setLastRefreshedTime] = useState<string>('Just now');
+
   const [showLabelModal, setShowLabelModal] = useState(false);
   const [emailToLabel, setEmailToLabel] = useState<MockEmail | null>(null);
   const [selectedLabelId, setSelectedLabelId] = useState<string>(DEFAULT_ACCOUNT_LABELS[0].id);
@@ -152,7 +221,6 @@ export default function AndroidSimulator({
       ? ['#00FFFF', '#FF00FF', '#007BFF', '#39FF14', '#FFE600', '#FF3366']
       : ['#0EA5E9', '#EC4899', '#3B82F6', '#10B981', '#F59E0B', '#EF4444'];
 
-    // Center primary explosion
     confetti({
       particleCount: 120,
       spread: 100,
@@ -163,7 +231,6 @@ export default function AndroidSimulator({
       scalar: 1.2,
     });
 
-    // Left and Right celebratory cannon bursts
     setTimeout(() => {
       confetti({
         particleCount: 70,
@@ -182,17 +249,6 @@ export default function AndroidSimulator({
         scalar: 1.1,
       });
     }, 180);
-
-    setTimeout(() => {
-      confetti({
-        particleCount: 90,
-        spread: 130,
-        origin: { y: 0.42, x: 0.5 },
-        colors: neonColors,
-        startVelocity: 35,
-        scalar: 1.2,
-      });
-    }, 420);
   }, [isDarkTheme]);
 
   // Track unread count and explode confetti when number hits 0
@@ -204,21 +260,132 @@ export default function AndroidSimulator({
     prevCountRef.current = emails.length;
   }, [emails.length, triggerNeonConfetti]);
 
-  // Refresh labels anytime the app is opened (per user requirement)
-  const handleRefreshLabels = () => {
+  // Load Real Gmail Data
+  const loadRealGmailData = useCallback(
+    async (token: string) => {
+      setIsLoadingEmails(true);
+      setAuthError(null);
+      try {
+        const [emailResult, labelsResult] = await Promise.all([
+          fetchEmailsFromGmail(token),
+          fetchLabelsFromGmail(token),
+        ]);
+
+        if (emailResult.emails.length > 0) {
+          const formatted: MockEmail[] = emailResult.emails.map((e) => ({
+            id: e.id,
+            threadId: e.threadId,
+            sender: e.sender,
+            subject: e.subject,
+            snippet: e.snippet,
+            category: e.category,
+            isReal: true,
+          }));
+          setEmails(formatted);
+          setNextPageToken(emailResult.nextPageToken);
+          setHasMore(Boolean(emailResult.nextPageToken));
+        } else {
+          setEmails([]);
+          setHasMore(false);
+        }
+
+        if (labelsResult.length > 0) {
+          const mappedLabels: AccountLabel[] = labelsResult.map((lbl, idx) => ({
+            id: lbl.id,
+            name: lbl.name,
+            color: LABEL_COLORS[idx % LABEL_COLORS.length],
+          }));
+          setAccountLabels(mappedLabels);
+          setSelectedLabelId(mappedLabels[0].id);
+        }
+
+        setIsLiveGmailMode(true);
+        const now = new Date();
+        setLastRefreshedTime(
+          `${now.getHours().toString().padStart(2, '0')}:${now.getMinutes().toString().padStart(2, '0')}`
+        );
+      } catch (err: any) {
+        console.error('Failed to fetch real Gmail data:', err);
+        setAuthError(err.message || 'Failed to load emails from Gmail');
+      } finally {
+        setIsLoadingEmails(false);
+      }
+    },
+    []
+  );
+
+  // Initialize Firebase Auth listener
+  useEffect(() => {
+    const unsubscribe = initAuth(
+      (user, token) => {
+        setCurrentUser(user);
+        setAccessToken(token);
+        loadRealGmailData(token);
+      },
+      () => {
+        setCurrentUser(null);
+        setAccessToken(null);
+        setIsLiveGmailMode(false);
+      }
+    );
+    return () => unsubscribe();
+  }, [loadRealGmailData]);
+
+  // Google Sign-In handler
+  const handleGoogleSignIn = async () => {
+    setIsSigningInGoogle(true);
+    setAuthError(null);
+    try {
+      const result = await googleSignIn();
+      if (result) {
+        setCurrentUser(result.user);
+        setAccessToken(result.accessToken);
+        await loadRealGmailData(result.accessToken);
+      }
+    } catch (err: any) {
+      console.error('Sign-in failed:', err);
+      setAuthError(err.message || 'Google Sign-In failed');
+    } finally {
+      setIsSigningInGoogle(false);
+    }
+  };
+
+  // Google Logout handler
+  const handleGoogleLogout = async () => {
+    await logout();
+    setCurrentUser(null);
+    setAccessToken(null);
+    setIsLiveGmailMode(false);
+    setEmails(INITIAL_DEMO_EMAILS);
+    setAccountLabels(DEFAULT_ACCOUNT_LABELS);
+  };
+
+  // Refresh labels
+  const handleRefreshLabels = async () => {
     setIsRefreshingLabels(true);
+    if (isLiveGmailMode && accessToken) {
+      try {
+        const labels = await fetchLabelsFromGmail(accessToken);
+        if (labels.length > 0) {
+          const mapped: AccountLabel[] = labels.map((lbl, idx) => ({
+            id: lbl.id,
+            name: lbl.name,
+            color: LABEL_COLORS[idx % LABEL_COLORS.length],
+          }));
+          setAccountLabels(mapped);
+        }
+      } catch (e) {
+        console.error('Error refreshing labels:', e);
+      }
+    }
     setTimeout(() => {
       setIsRefreshingLabels(false);
       const now = new Date();
       setLastRefreshedTime(
         `${now.getHours().toString().padStart(2, '0')}:${now.getMinutes().toString().padStart(2, '0')}`
       );
-    }, 600);
+    }, 400);
   };
-
-  useEffect(() => {
-    handleRefreshLabels();
-  }, []);
 
   const handleHeaderTap = () => {
     const now = Date.now();
@@ -231,20 +398,21 @@ export default function AndroidSimulator({
     }
   };
 
-  const handleSwipe = (email: MockEmail, direction: SwipeDirection) => {
+  // Execute the actual swipe action (after confirmation if required)
+  const executeSwipe = (email: MockEmail, direction: SwipeDirection) => {
     // 1. Show Screen-centered popup: ONLY the icon, NO words or text
     const popupColor = isDarkTheme
       ? {
           RIGHT: '#00FFFF', // Neon Cyan
-          LEFT: '#FF3366',  // Neon Red/Pink
-          UP: '#FF00FF',    // Neon Magenta
-          DOWN: '#007BFF',  // Electric Blue
+          LEFT: '#FF3366', // Neon Red/Pink
+          UP: '#FF00FF', // Neon Magenta
+          DOWN: '#007BFF', // Electric Blue
         }[direction]
       : {
-          RIGHT: '#0EA5E9', // Pastel Sky Cyan
-          LEFT: '#F87171',  // Pastel Red/Coral
-          UP: '#EC4899',    // Pastel Rose
-          DOWN: '#3B82F6',  // Pastel Royal Blue
+          RIGHT: '#0EA5E9',
+          LEFT: '#F87171',
+          UP: '#EC4899',
+          DOWN: '#3B82F6',
         }[direction];
 
     const iconType = {
@@ -259,14 +427,28 @@ export default function AndroidSimulator({
       setActivePopup(null);
     }, 700);
 
-    // 2. Remove email locally
+    // 2. Perform live Gmail action if connected
+    if (email.isReal && accessToken) {
+      const threadId = email.threadId || email.id;
+      if (direction === 'RIGHT') {
+        archiveGmailThread(accessToken, threadId).catch(console.error);
+      } else if (direction === 'LEFT') {
+        trashGmailThread(accessToken, threadId).catch(console.error);
+      } else if (direction === 'DOWN') {
+        markGmailThreadRead(accessToken, threadId).catch(console.error);
+      } else if (direction === 'UP') {
+        applyNeedsResponseLabel(accessToken, threadId).catch(console.error);
+      }
+    }
+
+    // 3. Remove email locally
     setEmails((prev) => prev.filter((item) => item.id !== email.id));
 
-    // 3. Set Last Action for Undo
+    // 4. Set Last Action for Undo
     const actionDesc = {
       RIGHT: 'Archived email',
-      LEFT: 'Deleted email',
-      UP: 'Marked "Needs Update"',
+      LEFT: 'Moved to Gmail Trash',
+      UP: 'Marked "Needs Response"',
       DOWN: 'Marked as read',
     }[direction];
 
@@ -278,7 +460,16 @@ export default function AndroidSimulator({
     setSnackbarVisible(true);
   };
 
-  // Open the Label selection popup window (triggered by bottom button OR card long-press)
+  const handleSwipe = (email: MockEmail, direction: SwipeDirection) => {
+    // Workspace Policy: Destructive actions on user data REQUIRE explicit confirmation
+    if (direction === 'LEFT' && email.isReal) {
+      setDestructiveModal({ email });
+      return;
+    }
+    executeSwipe(email, direction);
+  };
+
+  // Open the Label selection popup window
   const handleOpenLabelModal = (email?: MockEmail) => {
     const target = email || (emails.length > 0 ? emails[emails.length - 1] : null);
     if (!target) return;
@@ -287,7 +478,6 @@ export default function AndroidSimulator({
     setIsDropdownOpen(false);
     setLabelSearchQuery('');
     setShowLabelModal(true);
-    // Refresh labels anytime app opens or modal is invoked
     handleRefreshLabels();
   };
 
@@ -306,18 +496,25 @@ export default function AndroidSimulator({
       setActivePopup(null);
     }, 700);
 
-    // 2. Remove email locally (triaged to destination label)
+    // 2. Perform live Gmail action if connected
+    if (emailToLabel.isReal && accessToken) {
+      const threadId = emailToLabel.threadId || emailToLabel.id;
+      applyCustomLabelToThread(accessToken, threadId, targetId).catch(console.error);
+    }
+
+    // 3. Remove email locally (triaged to destination label)
     setEmails((prev) => prev.filter((item) => item.id !== emailToLabel.id));
 
-    // 3. Set Last Action for Undo
+    // 4. Set Last Action for Undo
     setLastAction({
       email: emailToLabel,
       customLabel: labelName,
+      customLabelId: targetId,
       label: `Moved to "${labelName}" & marked read`,
     });
     setSnackbarVisible(true);
 
-    // 4. Close modal
+    // 5. Close modal
     setShowLabelModal(false);
     setEmailToLabel(null);
     setIsDropdownOpen(false);
@@ -326,34 +523,87 @@ export default function AndroidSimulator({
   const handleUndo = () => {
     if (!lastAction) return;
 
+    // Perform live reverse Gmail action if connected
+    if (lastAction.email.isReal && accessToken) {
+      const threadId = lastAction.email.threadId || lastAction.email.id;
+      if (lastAction.direction === 'RIGHT') {
+        unarchiveGmailThread(accessToken, threadId).catch(console.error);
+      } else if (lastAction.direction === 'LEFT') {
+        untrashGmailThread(accessToken, threadId).catch(console.error);
+      } else if (lastAction.direction === 'DOWN') {
+        markGmailThreadUnread(accessToken, threadId).catch(console.error);
+      } else if (lastAction.direction === 'UP') {
+        removeNeedsResponseLabel(accessToken, threadId).catch(console.error);
+      } else if (lastAction.customLabelId) {
+        unapplyCustomLabelFromThread(accessToken, threadId, lastAction.customLabelId).catch(
+          console.error
+        );
+      }
+    }
+
     // Restore to top of stack
     setEmails((prev) => [...prev, lastAction.email]);
     setSnackbarVisible(false);
     setLastAction(null);
   };
 
-  const handleFetchNextBatch = () => {
+  const handleFetchNextBatch = async () => {
+    if (isLiveGmailMode && accessToken) {
+      setIsLoadingEmails(true);
+      try {
+        const result = await fetchEmailsFromGmail(accessToken, nextPageToken);
+        if (result.emails.length > 0) {
+          const formatted: MockEmail[] = result.emails.map((e) => ({
+            id: e.id,
+            threadId: e.threadId,
+            sender: e.sender,
+            subject: e.subject,
+            snippet: e.snippet,
+            category: e.category,
+            isReal: true,
+          }));
+          setEmails((prev) => [...formatted, ...prev]);
+          setNextPageToken(result.nextPageToken);
+          setHasMore(Boolean(result.nextPageToken));
+        } else {
+          setHasMore(false);
+        }
+      } catch (err) {
+        console.error('Failed to fetch more emails:', err);
+      } finally {
+        setIsLoadingEmails(false);
+      }
+      return;
+    }
+
+    // Demo Mode batch
     const nextBatch: MockEmail[] = [
       {
         id: `batch-${batchCount}-1`,
         sender: 'Android Weekly #620',
         subject: 'Mastering PointerInput & DragGestures in Jetpack Compose',
-        snippet: 'A deep dive into high-performance physics-based swiping and card stacking in Kotlin.',
+        snippet:
+          'A deep dive into high-performance physics-based swiping and card stacking in Kotlin.',
         category: 'Updates',
+        isReal: false,
       },
       {
         id: `batch-${batchCount}-2`,
         sender: 'Google Developer Relations',
         subject: 'Credential Manager Migration Guide for Android 14',
-        snippet: 'How to replace GoogleSignInClient with androidx.credentials and GoogleIdTokenCredential seamlessly.',
+        snippet:
+          'How to replace GoogleSignInClient with androidx.credentials and GoogleIdTokenCredential seamlessly.',
         category: 'Primary',
+        isReal: false,
       },
       {
         id: `batch-${batchCount}-3`,
         sender: 'Stripe Billing',
         subject: 'Your monthly invoice for Cloud Run API proxy',
-        snippet: 'Your statement for the current billing cycle is ready. Total charges: $0.00 (Free tier applied).',
+        snippet:
+          'Your statement for the current billing cycle is ready. Total charges: $0.00 (Free tier applied).',
         category: 'Updates',
+        isReal: false,
       },
     ];
 
@@ -365,11 +615,12 @@ export default function AndroidSimulator({
   };
 
   const resetDemo = () => {
-    setEmails(INITIAL_EMAILS);
+    setEmails(INITIAL_DEMO_EMAILS);
     setLastAction(null);
     setSnackbarVisible(false);
     setHasMore(true);
     setBatchCount(1);
+    setIsLiveGmailMode(false);
     handleRefreshLabels();
   };
 
@@ -388,6 +639,31 @@ export default function AndroidSimulator({
 
   return (
     <div className="flex flex-col lg:flex-row items-center justify-center gap-10 p-6 min-h-[calc(100vh-4rem)]">
+      {/* Destructive Confirmation Modal for Gmail Trashing */}
+      <DestructiveConfirmModal
+        isOpen={Boolean(destructiveModal)}
+        title="Move to Gmail Trash?"
+        description="Are you sure you want to move this conversation to your Gmail Trash folder? This will remove it from your active inbox."
+        itemDetails={
+          destructiveModal
+            ? {
+                sender: destructiveModal.email.sender,
+                subject: destructiveModal.email.subject,
+              }
+            : undefined
+        }
+        confirmLabel="Move to Trash"
+        cancelLabel="Cancel"
+        isDarkTheme={isDarkTheme}
+        onCancel={() => setDestructiveModal(null)}
+        onConfirm={() => {
+          if (destructiveModal) {
+            executeSwipe(destructiveModal.email, 'LEFT');
+            setDestructiveModal(null);
+          }
+        }}
+      />
+
       {/* Phone Hardware Shell with outer quick controls */}
       <div className="flex flex-col items-center">
         {/* Quick Simulator Header Controls */}
@@ -426,51 +702,103 @@ export default function AndroidSimulator({
           </button>
         </div>
 
-        <div className={`relative w-[380px] h-[740px] ${canvasBg} rounded-[48px] border-4 ${deviceBorder} shadow-[0_0_50px_rgba(0,123,255,0.15)] flex flex-col overflow-hidden select-none transition-colors duration-300`}>
-          
+        <div
+          className={`relative w-[380px] h-[740px] ${canvasBg} rounded-[48px] border-4 ${deviceBorder} shadow-[0_0_50px_rgba(0,123,255,0.15)] flex flex-col overflow-hidden select-none transition-colors duration-300`}
+        >
           {/* Device Camera Notch */}
-          <div className={`absolute top-0 left-1/2 -translate-x-1/2 w-36 h-6 ${isDarkTheme ? 'bg-[#22222E]' : 'bg-[#E2E8F0]'} rounded-b-2xl z-50 flex items-center justify-center gap-3 transition-colors`}>
-            <div className={`w-10 h-1.5 ${isDarkTheme ? 'bg-[#111118]' : 'bg-[#94A3B8]'} rounded-full`} />
-            <div className={`w-2.5 h-2.5 ${isDarkTheme ? 'bg-[#0a0a0f]' : 'bg-[#64748B]'} rounded-full`} />
+          <div
+            className={`absolute top-0 left-1/2 -translate-x-1/2 w-36 h-6 ${
+              isDarkTheme ? 'bg-[#22222E]' : 'bg-[#E2E8F0]'
+            } rounded-b-2xl z-50 flex items-center justify-center gap-3 transition-colors`}
+          >
+            <div
+              className={`w-10 h-1.5 ${isDarkTheme ? 'bg-[#111118]' : 'bg-[#94A3B8]'} rounded-full`}
+            />
+            <div
+              className={`w-2.5 h-2.5 ${isDarkTheme ? 'bg-[#0a0a0f]' : 'bg-[#64748B]'} rounded-full`}
+            />
           </div>
 
           {/* Android Status Bar */}
-          <div className={`h-10 px-8 pt-2 flex items-center justify-between text-xs ${statusBarText} font-mono z-40 ${canvasBg}`}>
+          <div
+            className={`h-10 px-8 pt-2 flex items-center justify-between text-xs ${statusBarText} font-mono z-40 ${canvasBg}`}
+          >
             <span>9:41</span>
             <div className="flex items-center gap-2">
-              <span className="text-[10px] font-bold" style={{ color: primaryAccent }}>5G</span>
+              <span className="text-[10px] font-bold" style={{ color: primaryAccent }}>
+                5G
+              </span>
               <div className="w-4 h-2.5 border border-current rounded-sm p-[1px]">
                 <div className={`w-full h-full ${signalColor} rounded-[1px]`} />
               </div>
             </div>
           </div>
 
-          {/* Top App Header: Pixelated "0 INBOX" with Slashed Zero & Equal Sizing (Double-Tap opens Settings) */}
-          <div 
+          {/* Top App Header: Pixelated "0 INBOX" with Slashed Zero (Double-Tap opens Settings) */}
+          <div
             onClick={handleHeaderTap}
             onDoubleClick={() => setShowSettings(true)}
-            className="px-6 pt-3 pb-2 flex flex-col items-center justify-center z-30 cursor-pointer select-none transition-transform active:scale-98 bg-transparent"
+            className="px-6 pt-2 pb-1 flex flex-col items-center justify-center z-30 cursor-pointer select-none transition-transform active:scale-98 bg-transparent"
             title="Double-tap header to open Settings"
           >
             <PixelTitle
               zeroColor={primaryAccent}
               inboxColor={secondaryAccent}
-              width={180}
-              height={60}
+              width={160}
+              height={52}
             />
+
+            {/* Gmail Connection Badge */}
+            <div className="mt-1 flex items-center gap-1.5">
+              {isLiveGmailMode && currentUser ? (
+                <div
+                  className={`flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[10px] font-medium border ${
+                    isDarkTheme
+                      ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/30'
+                      : 'bg-emerald-50 text-emerald-700 border-emerald-300'
+                  }`}
+                >
+                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+                  <span className="truncate max-w-[170px]">{currentUser.email}</span>
+                </div>
+              ) : (
+                <div
+                  className={`flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[10px] font-medium border ${
+                    isDarkTheme
+                      ? 'bg-[#00FFFF]/10 text-[#00FFFF] border-[#00FFFF]/30'
+                      : 'bg-sky-50 text-sky-700 border-sky-300'
+                  }`}
+                >
+                  <span>Demo Mode • Tap below to connect Gmail</span>
+                </div>
+              )}
+            </div>
           </div>
 
           {/* Main Stack View Area */}
           <div className="flex-1 relative flex items-center justify-center p-4 overflow-hidden">
-            {emails.length === 0 && (
-              <motion.div 
-                initial={{ scale: 0.6, opacity: 0 }} 
-                animate={{ scale: 1, opacity: 1 }} 
+            {isLoadingEmails && (
+              <div className="absolute inset-0 z-40 bg-black/40 backdrop-blur-xs flex flex-col items-center justify-center gap-3">
+                <RefreshCw
+                  size={32}
+                  className="animate-spin"
+                  style={{ color: primaryAccent }}
+                />
+                <span className="text-xs font-bold font-mono tracking-wider text-white">
+                  SYNCING GMAIL INBOX...
+                </span>
+              </div>
+            )}
+
+            {emails.length === 0 && !isLoadingEmails && (
+              <motion.div
+                initial={{ scale: 0.6, opacity: 0 }}
+                animate={{ scale: 1, opacity: 1 }}
                 transition={{ type: 'spring', damping: 20, stiffness: 220 }}
                 className="flex flex-col items-center justify-center text-center p-4 z-20 select-none max-w-[320px]"
               >
                 {/* Big Pixelated 0 in Center of Screen */}
-                <div 
+                <div
                   className="cursor-pointer transition-transform hover:scale-105 active:scale-95 my-1"
                   onClick={triggerNeonConfetti}
                   title="Click to explode neon confetti!"
@@ -495,14 +823,16 @@ export default function AndroidSimulator({
                   transition={{ delay: 0.15 }}
                   className="mt-3 space-y-1"
                 >
-                  <h3 
-                    className="text-base font-black tracking-[0.25em] font-mono uppercase" 
+                  <h3
+                    className="text-base font-black tracking-[0.25em] font-mono uppercase"
                     style={{ color: secondaryAccent }}
                   >
                     0 INBOX
                   </h3>
                   <p className={`text-xs ${isDarkTheme ? 'text-gray-400' : 'text-slate-500'}`}>
-                    All emails have been processed!
+                    {isLiveGmailMode
+                      ? 'All emails in your Gmail inbox have been triaged!'
+                      : 'All demo emails have been processed!'}
                   </p>
                 </motion.div>
 
@@ -510,11 +840,11 @@ export default function AndroidSimulator({
                   initial={{ y: 15, opacity: 0 }}
                   animate={{ y: 0, opacity: 1 }}
                   transition={{ delay: 0.25 }}
-                  className="mt-5 flex items-center gap-2"
+                  className="mt-5 flex flex-wrap items-center justify-center gap-2"
                 >
                   <button
                     onClick={triggerNeonConfetti}
-                    className="px-3.5 py-1.5 rounded-xl border text-xs font-semibold flex items-center gap-1.5 transition-all active:scale-95 shadow-sm"
+                    className="px-3 py-1.5 rounded-xl border text-xs font-semibold flex items-center gap-1.5 transition-all active:scale-95 shadow-sm"
                     style={{
                       backgroundColor: `${primaryAccent}18`,
                       borderColor: `${primaryAccent}45`,
@@ -525,7 +855,16 @@ export default function AndroidSimulator({
                     <span>Confetti</span>
                   </button>
 
-                  {hasMore ? (
+                  {isLiveGmailMode && accessToken ? (
+                    <button
+                      onClick={() => loadRealGmailData(accessToken)}
+                      className="px-3.5 py-1.5 rounded-xl text-white text-xs font-bold shadow-md transition-transform active:scale-95 flex items-center gap-1.5"
+                      style={{ backgroundColor: tertiaryAccent }}
+                    >
+                      <RefreshCw size={13} />
+                      <span>Check New Mail</span>
+                    </button>
+                  ) : hasMore ? (
                     <button
                       onClick={handleFetchNextBatch}
                       className="px-3.5 py-1.5 rounded-xl text-white text-xs font-bold shadow-md transition-transform active:scale-95 flex items-center gap-1"
@@ -548,18 +887,20 @@ export default function AndroidSimulator({
             )}
 
             {/* Informational Pagination Card (rendered at bottom of stack) */}
-            {hasMore && (
+            {hasMore && emails.length > 0 && (
               <motion.div
-                className={`absolute w-[90%] aspect-[0.68] rounded-[24px] ${isDarkTheme ? 'bg-[#1A1A24]' : 'bg-[#F8FAFC]'} border-2 ${infoBorderColor} p-6 flex flex-col items-center justify-center text-center shadow-lg cursor-pointer`}
+                className={`absolute w-[90%] aspect-[0.68] rounded-[24px] ${
+                  isDarkTheme ? 'bg-[#1A1A24]' : 'bg-[#F8FAFC]'
+                } border-2 ${infoBorderColor} p-6 flex flex-col items-center justify-center text-center shadow-lg cursor-pointer`}
                 whileHover={{ scale: 1.02 }}
                 whileTap={{ scale: 0.98 }}
                 onClick={handleFetchNextBatch}
               >
-                <div 
+                <div
                   className="w-12 h-12 rounded-full flex items-center justify-center mb-3"
-                  style={{ 
+                  style={{
                     backgroundColor: `${tertiaryAccent}20`,
-                    color: tertiaryAccent
+                    color: tertiaryAccent,
                   }}
                 >
                   <Sparkles size={24} />
@@ -567,10 +908,14 @@ export default function AndroidSimulator({
                 <h4 className={`font-bold text-lg ${isDarkTheme ? 'text-white' : 'text-slate-900'}`}>
                   More Emails Available
                 </h4>
-                <p className={`text-xs mt-1 mb-4 ${isDarkTheme ? 'text-gray-400' : 'text-slate-500'}`}>
-                  Swipe or tap to fetch next 20 via Gmail API
+                <p
+                  className={`text-xs mt-1 mb-4 ${isDarkTheme ? 'text-gray-400' : 'text-slate-500'}`}
+                >
+                  {isLiveGmailMode
+                    ? 'Swipe or tap to fetch the next batch from Gmail'
+                    : 'Swipe or tap to fetch next 20 via Gmail API'}
                 </p>
-                <span 
+                <span
                   className="px-4 py-2 rounded-xl text-white text-xs font-bold shadow-md flex items-center gap-1"
                   style={{ backgroundColor: tertiaryAccent }}
                 >
@@ -604,14 +949,26 @@ export default function AndroidSimulator({
                   animate={{ scale: 1, opacity: 1 }}
                   exit={{ scale: 0.7, opacity: 0 }}
                   transition={{ duration: 0.15 }}
-                  className={`absolute z-50 w-28 h-28 rounded-full ${isDarkTheme ? 'bg-black/85' : 'bg-white/90'} backdrop-blur-md flex items-center justify-center border-4 shadow-2xl pointer-events-none`}
+                  className={`absolute z-50 w-28 h-28 rounded-full ${
+                    isDarkTheme ? 'bg-black/85' : 'bg-white/90'
+                  } backdrop-blur-md flex items-center justify-center border-4 shadow-2xl pointer-events-none`}
                   style={{ borderColor: activePopup.color }}
                 >
-                  {activePopup.icon === 'archive' && <Archive size={48} color={activePopup.color} strokeWidth={2.5} />}
-                  {activePopup.icon === 'trash' && <Trash2 size={48} color={activePopup.color} strokeWidth={2.5} />}
-                  {activePopup.icon === 'pen' && <PenLine size={48} color={activePopup.color} strokeWidth={2.5} />}
-                  {activePopup.icon === 'mail' && <MailOpen size={48} color={activePopup.color} strokeWidth={2.5} />}
-                  {activePopup.icon === 'label' && <FolderInput size={48} color={activePopup.color} strokeWidth={2.5} />}
+                  {activePopup.icon === 'archive' && (
+                    <Archive size={48} color={activePopup.color} strokeWidth={2.5} />
+                  )}
+                  {activePopup.icon === 'trash' && (
+                    <Trash2 size={48} color={activePopup.color} strokeWidth={2.5} />
+                  )}
+                  {activePopup.icon === 'pen' && (
+                    <PenLine size={48} color={activePopup.color} strokeWidth={2.5} />
+                  )}
+                  {activePopup.icon === 'mail' && (
+                    <MailOpen size={48} color={activePopup.color} strokeWidth={2.5} />
+                  )}
+                  {activePopup.icon === 'label' && (
+                    <FolderInput size={48} color={activePopup.color} strokeWidth={2.5} />
+                  )}
                 </motion.div>
               )}
             </AnimatePresence>
@@ -624,11 +981,21 @@ export default function AndroidSimulator({
                   animate={{ y: 0, opacity: 1 }}
                   exit={{ y: 80, opacity: 0 }}
                   transition={{ type: 'spring', damping: 25, stiffness: 300 }}
-                  className={`absolute bottom-4 left-3 right-3 z-50 ${isDarkTheme ? 'bg-[#1B1B26] border-[#007BFF]' : 'bg-[#F1F5F9] border-[#60A5FA]'} border rounded-2xl p-3 shadow-2xl flex items-center justify-between gap-2`}
+                  className={`absolute bottom-4 left-3 right-3 z-50 ${
+                    isDarkTheme
+                      ? 'bg-[#1B1B26] border-[#007BFF]'
+                      : 'bg-[#F1F5F9] border-[#60A5FA]'
+                  } border rounded-2xl p-3 shadow-2xl flex items-center justify-between gap-2`}
                 >
                   <div className="flex items-center gap-2 overflow-hidden">
-                    <CheckCircle2 size={16} style={{ color: primaryAccent }} className="shrink-0" />
-                    <span className={`text-xs truncate ${isDarkTheme ? 'text-white' : 'text-slate-800'}`}>
+                    <CheckCircle2
+                      size={16}
+                      style={{ color: primaryAccent }}
+                      className="shrink-0"
+                    />
+                    <span
+                      className={`text-xs truncate ${isDarkTheme ? 'text-white' : 'text-slate-800'}`}
+                    >
                       {lastAction.label}
                     </span>
                   </div>
@@ -638,7 +1005,7 @@ export default function AndroidSimulator({
                     style={{
                       backgroundColor: `${primaryAccent}20`,
                       color: primaryAccent,
-                      border: `1px solid ${primaryAccent}40`
+                      border: `1px solid ${primaryAccent}40`,
                     }}
                   >
                     <RotateCcw size={12} />
@@ -655,7 +1022,7 @@ export default function AndroidSimulator({
                   initial={{ opacity: 0 }}
                   animate={{ opacity: 1 }}
                   exit={{ opacity: 0 }}
-                  className="absolute inset-0 z-50 bg-black/75 backdrop-blur-sm flex items-end justify-center p-3"
+                  className="absolute inset-0 z-50 bg-black/75 backdrop-blur-xs flex items-end justify-center p-3"
                   onClick={() => setShowLabelModal(false)}
                 >
                   <motion.div
@@ -672,13 +1039,21 @@ export default function AndroidSimulator({
                     {/* Modal Header */}
                     <div className="flex items-center justify-between pb-3 border-b border-gray-500/20">
                       <div className="flex items-center gap-2.5">
-                        <div className={`p-2 rounded-xl ${isDarkTheme ? 'bg-[#00FFFF]/15 text-[#00FFFF]' : 'bg-sky-100 text-sky-700'}`}>
+                        <div
+                          className={`p-2 rounded-xl ${
+                            isDarkTheme
+                              ? 'bg-[#00FFFF]/15 text-[#00FFFF]'
+                              : 'bg-sky-100 text-sky-700'
+                          }`}
+                        >
                           <FolderInput size={18} />
                         </div>
                         <div>
                           <h3 className="font-bold text-sm leading-tight">Assign Label</h3>
                           <div className="flex items-center gap-1.5 text-[10px] text-gray-400">
-                            <span>Gmail Account Labels</span>
+                            <span>
+                              {isLiveGmailMode ? 'Live Gmail Labels' : 'Gmail Account Labels'}
+                            </span>
                           </div>
                         </div>
                       </div>
@@ -690,10 +1065,15 @@ export default function AndroidSimulator({
                               ? 'bg-[#1E1E2C] border-[#313146] text-gray-300 hover:text-white'
                               : 'bg-slate-100 border-slate-200 text-slate-700 hover:bg-slate-200'
                           }`}
-                          title="Refresh labels from Gmail account anytime app opens"
+                          title="Refresh labels from Gmail account"
                         >
-                          <RefreshCw size={12} className={isRefreshingLabels ? 'animate-spin text-[#00FFFF]' : ''} />
-                          <span className="text-[10px]">{isRefreshingLabels ? 'Syncing...' : lastRefreshedTime}</span>
+                          <RefreshCw
+                            size={12}
+                            className={isRefreshingLabels ? 'animate-spin text-[#00FFFF]' : ''}
+                          />
+                          <span className="text-[10px]">
+                            {isRefreshingLabels ? 'Syncing...' : lastRefreshedTime}
+                          </span>
                         </button>
                         <button
                           onClick={() => setShowLabelModal(false)}
@@ -705,14 +1085,26 @@ export default function AndroidSimulator({
                     </div>
 
                     {/* Email Target Card */}
-                    <div className={`my-3 p-3 rounded-2xl border ${isDarkTheme ? 'bg-[#1E1E2C] border-[#2E2E42]' : 'bg-slate-50 border-slate-200'} text-xs`}>
+                    <div
+                      className={`my-3 p-3 rounded-2xl border ${
+                        isDarkTheme
+                          ? 'bg-[#1E1E2C] border-[#2E2E42]'
+                          : 'bg-slate-50 border-slate-200'
+                      } text-xs`}
+                    >
                       <div className="flex items-center justify-between text-[11px] font-semibold text-gray-400 mb-0.5">
-                        <span className="truncate" style={{ color: primaryAccent }}>{emailToLabel.sender}</span>
+                        <span className="truncate" style={{ color: primaryAccent }}>
+                          {emailToLabel.sender}
+                        </span>
                         <span className="shrink-0 text-[10px] font-mono px-1.5 py-0.5 rounded bg-emerald-500/15 text-emerald-400">
-                          Long Press Action
+                          Target Email
                         </span>
                       </div>
-                      <p className={`font-bold truncate text-xs ${isDarkTheme ? 'text-white' : 'text-slate-900'}`}>
+                      <p
+                        className={`font-bold truncate text-xs ${
+                          isDarkTheme ? 'text-white' : 'text-slate-900'
+                        }`}
+                      >
                         {emailToLabel.subject}
                       </p>
                     </div>
@@ -722,7 +1114,7 @@ export default function AndroidSimulator({
                       <label className="text-[11px] font-semibold text-gray-400 uppercase tracking-wider block">
                         Account Labels Dropdown
                       </label>
-                      
+
                       <button
                         type="button"
                         onClick={() => setIsDropdownOpen(!isDropdownOpen)}
@@ -737,35 +1129,54 @@ export default function AndroidSimulator({
                             className="w-2.5 h-2.5 rounded-full shrink-0"
                             style={{ backgroundColor: selectedLabel?.color || primaryAccent }}
                           />
-                          <span className="truncate">{selectedLabel?.name || 'Choose an account label...'}</span>
+                          <span className="truncate">
+                            {selectedLabel?.name || 'Choose an account label...'}
+                          </span>
                         </div>
-                        <ChevronDown size={15} className={`transition-transform duration-200 shrink-0 ${isDropdownOpen ? 'rotate-180' : ''}`} />
+                        <ChevronDown
+                          size={15}
+                          className={`transition-transform duration-200 shrink-0 ${
+                            isDropdownOpen ? 'rotate-180' : ''
+                          }`}
+                        />
                       </button>
 
                       {/* Dropdown Menu Popup List */}
                       {isDropdownOpen && (
-                        <div className={`absolute top-full left-0 right-0 mt-1.5 max-h-48 overflow-y-auto rounded-xl border shadow-2xl z-50 p-1.5 ${
-                          isDarkTheme ? 'bg-[#181826] border-[#383850]' : 'bg-white border-slate-200'
-                        }`}>
+                        <div
+                          className={`absolute top-full left-0 right-0 mt-1.5 max-h-48 overflow-y-auto rounded-xl border shadow-2xl z-50 p-1.5 ${
+                            isDarkTheme
+                              ? 'bg-[#181826] border-[#383850]'
+                              : 'bg-white border-slate-200'
+                          }`}
+                        >
                           <div className="p-1 mb-1 border-b border-gray-500/20 flex items-center gap-1.5">
-                            <Search size={12} className="text-gray-400 shrink-0" />
+                            <Search size={13} className="text-gray-400 shrink-0" />
                             <input
                               type="text"
                               value={labelSearchQuery}
                               onChange={(e) => setLabelSearchQuery(e.target.value)}
-                              placeholder="Filter labels..."
-                              className={`w-full text-xs bg-transparent outline-none ${
-                                isDarkTheme ? 'text-white placeholder-gray-500' : 'text-slate-900 placeholder-slate-400'
+                              placeholder="Search labels..."
+                              className={`w-full bg-transparent text-xs outline-hidden ${
+                                isDarkTheme
+                                  ? 'text-white placeholder-gray-500'
+                                  : 'text-slate-900 placeholder-slate-400'
                               }`}
                             />
                             {labelSearchQuery && (
-                              <button onClick={() => setLabelSearchQuery('')} className="text-gray-400 hover:text-white text-[10px]">✕</button>
+                              <button
+                                onClick={() => setLabelSearchQuery('')}
+                                className="text-gray-400 hover:text-white text-[10px]"
+                              >
+                                ✕
+                              </button>
                             )}
                           </div>
-
                           <div className="space-y-0.5">
                             {accountLabels
-                              .filter((l) => l.name.toLowerCase().includes(labelSearchQuery.toLowerCase()))
+                              .filter((l) =>
+                                l.name.toLowerCase().includes(labelSearchQuery.toLowerCase())
+                              )
                               .map((label) => {
                                 const isSelected = label.id === selectedLabelId;
                                 return (
@@ -777,15 +1188,24 @@ export default function AndroidSimulator({
                                     }}
                                     className={`w-full flex items-center justify-between px-2.5 py-2 rounded-lg text-xs text-left transition-colors ${
                                       isSelected
-                                        ? (isDarkTheme ? 'bg-[#007BFF]/25 text-[#00FFFF] font-bold' : 'bg-sky-50 text-sky-700 font-bold')
-                                        : (isDarkTheme ? 'hover:bg-[#252538] text-gray-200' : 'hover:bg-slate-100 text-slate-700')
+                                        ? isDarkTheme
+                                          ? 'bg-[#007BFF]/25 text-[#00FFFF] font-bold'
+                                          : 'bg-sky-50 text-sky-700 font-bold'
+                                        : isDarkTheme
+                                        ? 'hover:bg-[#252538] text-gray-200'
+                                        : 'hover:bg-slate-100 text-slate-700'
                                     }`}
                                   >
                                     <div className="flex items-center gap-2 truncate">
-                                      <span className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: label.color }} />
+                                      <span
+                                        className="w-2 h-2 rounded-full shrink-0"
+                                        style={{ backgroundColor: label.color }}
+                                      />
                                       <span className="truncate">{label.name}</span>
                                     </div>
-                                    {isSelected && <Check size={14} className="text-emerald-400 shrink-0" />}
+                                    {isSelected && (
+                                      <Check size={14} className="text-emerald-400 shrink-0" />
+                                    )}
                                   </button>
                                 );
                               })}
@@ -794,20 +1214,34 @@ export default function AndroidSimulator({
                       )}
                     </div>
 
-                    {/* Action Explanation (Apply label, mark read, move from inbox) */}
-                    <div className={`p-3 rounded-2xl border ${isDarkTheme ? 'bg-[#111118] border-[#22222E]' : 'bg-slate-50 border-slate-200'} text-[11px] space-y-1.5 mb-4`}>
-                      <div className="font-bold text-gray-400 uppercase tracking-wider text-[10px]">Automated Triage Action:</div>
-                      <div className="flex items-center gap-2 text-emerald-500 font-medium">
-                        <Check size={13} className="shrink-0" />
-                        <span>Apply label <strong>{selectedLabel?.name}</strong></span>
+                    {/* Action Explanation */}
+                    <div
+                      className={`p-3 rounded-2xl border ${
+                        isDarkTheme
+                          ? 'bg-[#111118] border-[#22222E]'
+                          : 'bg-slate-50 border-slate-200'
+                      } text-[11px] space-y-1.5 mb-4`}
+                    >
+                      <div className="font-bold text-gray-400 uppercase tracking-wider text-[10px]">
+                        Automated Triage Action:
                       </div>
                       <div className="flex items-center gap-2 text-emerald-500 font-medium">
                         <Check size={13} className="shrink-0" />
-                        <span>Mark email as <strong>Read</strong></span>
+                        <span>
+                          Apply label <strong>{selectedLabel?.name}</strong>
+                        </span>
                       </div>
                       <div className="flex items-center gap-2 text-emerald-500 font-medium">
                         <Check size={13} className="shrink-0" />
-                        <span>Move from <strong>Inbox</strong> (Archived to Label)</span>
+                        <span>
+                          Mark email as <strong>Read</strong>
+                        </span>
+                      </div>
+                      <div className="flex items-center gap-2 text-emerald-500 font-medium">
+                        <Check size={13} className="shrink-0" />
+                        <span>
+                          Move from <strong>Inbox</strong> (Archived to Label)
+                        </span>
                       </div>
                     </div>
 
@@ -816,7 +1250,9 @@ export default function AndroidSimulator({
                       <button
                         onClick={() => setShowLabelModal(false)}
                         className={`flex-1 py-2.5 rounded-xl text-xs font-semibold border transition-colors ${
-                          isDarkTheme ? 'border-[#383850] text-gray-300 hover:bg-[#1E1E2C]' : 'border-slate-300 text-slate-700 hover:bg-slate-100'
+                          isDarkTheme
+                            ? 'border-[#383850] text-gray-300 hover:bg-[#1E1E2C]'
+                            : 'border-slate-300 text-slate-700 hover:bg-slate-100'
                         }`}
                       >
                         Cancel
@@ -842,13 +1278,17 @@ export default function AndroidSimulator({
                   initial={{ opacity: 0 }}
                   animate={{ opacity: 1 }}
                   exit={{ opacity: 0 }}
-                  className="absolute inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-end justify-center p-3"
+                  className="absolute inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-end justify-center p-3"
                 >
                   <motion.div
                     initial={{ y: 200 }}
                     animate={{ y: 0 }}
                     exit={{ y: 200 }}
-                    className={`w-full ${isDarkTheme ? 'bg-[#181822] text-white border-[#2A2A3A]' : 'bg-white text-slate-900 border-slate-200'} border rounded-3xl p-5 shadow-2xl`}
+                    className={`w-full ${
+                      isDarkTheme
+                        ? 'bg-[#181822] text-white border-[#2A2A3A]'
+                        : 'bg-white text-slate-900 border-slate-200'
+                    } border rounded-3xl p-5 shadow-2xl max-h-[85%] overflow-y-auto`}
                   >
                     <div className="flex items-center justify-between pb-3 border-b border-gray-500/20 mb-4">
                       <h3 className="font-bold text-base">App Settings</h3>
@@ -861,6 +1301,53 @@ export default function AndroidSimulator({
                     </div>
 
                     <div className="space-y-4">
+                      {/* Gmail Account Section */}
+                      <div>
+                        <label className="text-xs font-semibold text-gray-400 block mb-2 uppercase tracking-wider">
+                          Gmail Integration
+                        </label>
+                        {isLiveGmailMode && currentUser ? (
+                          <div
+                            className={`p-3 rounded-2xl border ${
+                              isDarkTheme
+                                ? 'bg-[#111118] border-[#252538]'
+                                : 'bg-slate-50 border-slate-200'
+                            } flex items-center justify-between gap-2`}
+                          >
+                            <div className="overflow-hidden">
+                              <div className="flex items-center gap-1.5 text-xs font-bold text-emerald-400">
+                                <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+                                <span>Connected</span>
+                              </div>
+                              <p className="text-xs text-gray-400 truncate mt-0.5 font-mono">
+                                {currentUser.email}
+                              </p>
+                            </div>
+                            <button
+                              onClick={handleGoogleLogout}
+                              className="px-2.5 py-1.5 rounded-lg text-xs font-semibold text-red-400 border border-red-500/30 hover:bg-red-500/10 flex items-center gap-1"
+                            >
+                              <LogOut size={12} />
+                              <span>Disconnect</span>
+                            </button>
+                          </div>
+                        ) : (
+                          <div className="space-y-2">
+                            <GoogleSignInButton
+                              onClick={handleGoogleSignIn}
+                              disabled={isSigningInGoogle}
+                              isDarkTheme={isDarkTheme}
+                              label={isSigningInGoogle ? 'Connecting...' : 'Sign in with Google'}
+                              className="w-full"
+                            />
+                            <p className="text-[11px] text-gray-400">
+                              Connects directly to your Gmail account using OAuth 2.0.
+                            </p>
+                          </div>
+                        )}
+                      </div>
+
+                      {/* Theme Toggle */}
                       <div>
                         <label className="text-xs font-semibold text-gray-400 block mb-2 uppercase tracking-wider">
                           Theme Mode
@@ -878,7 +1365,6 @@ export default function AndroidSimulator({
                             <span className="text-xs font-bold">Neon Dark</span>
                             <span className="text-[10px] opacity-70">Cyan & Magenta</span>
                           </button>
-
                           <button
                             onClick={() => setIsDarkTheme(false)}
                             className={`p-3 rounded-2xl border flex flex-col items-center gap-2 transition-all ${
@@ -894,12 +1380,21 @@ export default function AndroidSimulator({
                         </div>
                       </div>
 
-                      <div className={`p-3 rounded-xl ${isDarkTheme ? 'bg-[#111118]' : 'bg-slate-50'} text-xs text-gray-400 leading-relaxed border border-gray-500/10`}>
-                        {isDarkTheme ? (
-                          <p>🌙 <strong>Neon Dark Theme</strong> active: Dark canvas with high-voltage Cyan & Magenta accents.</p>
-                        ) : (
-                          <p>☀️ <strong>Pastel Light Theme</strong> active: Pure white canvas with soft sky cyan, rose pastel, and royal blue.</p>
-                        )}
+                      {/* Reset Demo Button */}
+                      <div>
+                        <button
+                          onClick={() => {
+                            resetDemo();
+                            setShowSettings(false);
+                          }}
+                          className={`w-full py-2.5 rounded-xl border text-xs font-semibold transition-colors ${
+                            isDarkTheme
+                              ? 'border-[#383850] text-gray-300 hover:bg-[#252538]'
+                              : 'border-slate-300 text-slate-700 hover:bg-slate-100'
+                          }`}
+                        >
+                          Reset to Initial Demo Stack
+                        </button>
                       </div>
                     </div>
 
@@ -917,45 +1412,81 @@ export default function AndroidSimulator({
           </div>
 
           {/* Small text indicating unread count: Under cards, above bottom icons */}
-          <div className={`py-2 px-4 text-center select-none flex items-center justify-center gap-1.5 z-30 transition-colors ${
-            isDarkTheme ? 'bg-[#0E0E14] text-gray-400 border-[#1E1E28]' : 'bg-slate-50 text-slate-500 border-slate-200'
-          } border-t`}>
+          <div
+            className={`py-2 px-4 text-center select-none flex items-center justify-between z-30 transition-colors ${
+              isDarkTheme
+                ? 'bg-[#0E0E14] text-gray-400 border-[#1E1E28]'
+                : 'bg-slate-50 text-slate-500 border-slate-200'
+            } border-t`}
+          >
             <span className="text-[11px] font-medium tracking-wide">
               <strong
                 className="font-bold font-mono text-xs"
-                style={{ color: emails.length === 0 ? primaryAccent : (isDarkTheme ? '#FFFFFF' : '#0F172A') }}
+                style={{
+                  color:
+                    emails.length === 0
+                      ? primaryAccent
+                      : isDarkTheme
+                      ? '#FFFFFF'
+                      : '#0F172A',
+                }}
               >
                 {emails.length}
               </strong>{' '}
               {emails.length === 1 ? 'email unread in inbox' : 'emails unread in inbox'}
             </span>
+
+            {isLiveGmailMode && accessToken && (
+              <button
+                onClick={() => loadRealGmailData(accessToken)}
+                disabled={isLoadingEmails}
+                className="flex items-center gap-1 text-[10px] font-semibold text-emerald-400 hover:text-emerald-300"
+              >
+                <RefreshCw size={11} className={isLoadingEmails ? 'animate-spin' : ''} />
+                <span>Sync</span>
+              </button>
+            )}
           </div>
 
-          {/* Quick Trigger Buttons on Bottom (Now includes the dedicated button for Assigning Custom Label) */}
-          <div className={`px-4 py-3 ${isDarkTheme ? 'bg-[#121218] border-[#1E1E28]' : 'bg-[#F8FAFC] border-slate-200'} border-t flex items-center justify-between z-30 transition-colors`}>
+          {/* Quick Trigger Buttons on Bottom */}
+          <div
+            className={`px-4 py-3 ${
+              isDarkTheme ? 'bg-[#121218] border-[#1E1E28]' : 'bg-[#F8FAFC] border-slate-200'
+            } border-t flex items-center justify-between z-30 transition-colors`}
+          >
             {/* 1. Delete (Swipe Left) */}
             <button
-              title="Delete (Swipe Left)"
+              title="Delete / Trash (Swipe Left)"
               disabled={emails.length === 0}
-              onClick={() => emails.length > 0 && handleSwipe(emails[emails.length - 1], 'LEFT')}
-              className={`w-10 h-10 rounded-full ${isDarkTheme ? 'bg-[#FF3366]/10 border-[#FF3366]/40 text-[#FF3366]' : 'bg-red-50 border-red-200 text-red-500'} border flex items-center justify-center transition-transform active:scale-95 disabled:opacity-40`}
+              onClick={() =>
+                emails.length > 0 && handleSwipe(emails[emails.length - 1], 'LEFT')
+              }
+              className={`w-10 h-10 rounded-full ${
+                isDarkTheme
+                  ? 'bg-[#FF3366]/10 border-[#FF3366]/40 text-[#FF3366]'
+                  : 'bg-red-50 border-red-200 text-red-500'
+              } border flex items-center justify-center transition-transform active:scale-95 disabled:opacity-40`}
             >
               <Trash2 size={18} />
             </button>
 
-            {/* 2. Needs Update (Swipe Up) */}
+            {/* 2. Needs Response (Swipe Up) */}
             <button
-              title="Needs Update (Swipe Up)"
+              title="Needs Response (Swipe Up)"
               disabled={emails.length === 0}
               onClick={() => emails.length > 0 && handleSwipe(emails[emails.length - 1], 'UP')}
-              className={`w-10 h-10 rounded-full ${isDarkTheme ? 'bg-[#FF00FF]/10 border-[#FF00FF]/40 text-[#FF00FF]' : 'bg-pink-50 border-pink-200 text-pink-600'} border flex items-center justify-center transition-transform active:scale-95 disabled:opacity-40`}
+              className={`w-10 h-10 rounded-full ${
+                isDarkTheme
+                  ? 'bg-[#FF00FF]/10 border-[#FF00FF]/40 text-[#FF00FF]'
+                  : 'bg-pink-50 border-pink-200 text-pink-600'
+              } border flex items-center justify-center transition-transform active:scale-95 disabled:opacity-40`}
             >
               <PenLine size={18} />
             </button>
 
-            {/* 3. Assign Custom Label (NO SWIPE ACTIVITY - Long Press on Card OR tap this button) */}
+            {/* 3. Assign Custom Label */}
             <button
-              title="Assign Label (or Long Press Card - No Swipe)"
+              title="Assign Label (or Long Press Card)"
               disabled={emails.length === 0}
               onClick={() => handleOpenLabelModal()}
               className={`w-11 h-11 rounded-full ${
@@ -972,7 +1503,11 @@ export default function AndroidSimulator({
               title="Mark Read (Swipe Down)"
               disabled={emails.length === 0}
               onClick={() => emails.length > 0 && handleSwipe(emails[emails.length - 1], 'DOWN')}
-              className={`w-10 h-10 rounded-full ${isDarkTheme ? 'bg-[#007BFF]/10 border-[#007BFF]/40 text-[#007BFF]' : 'bg-blue-50 border-blue-200 text-blue-600'} border flex items-center justify-center transition-transform active:scale-95 disabled:opacity-40`}
+              className={`w-10 h-10 rounded-full ${
+                isDarkTheme
+                  ? 'bg-[#007BFF]/10 border-[#007BFF]/40 text-[#007BFF]'
+                  : 'bg-blue-50 border-blue-200 text-blue-600'
+              } border flex items-center justify-center transition-transform active:scale-95 disabled:opacity-40`}
             >
               <MailOpen size={18} />
             </button>
@@ -981,22 +1516,116 @@ export default function AndroidSimulator({
             <button
               title="Archive (Swipe Right)"
               disabled={emails.length === 0}
-              onClick={() => emails.length > 0 && handleSwipe(emails[emails.length - 1], 'RIGHT')}
-              className={`w-10 h-10 rounded-full ${isDarkTheme ? 'bg-[#00FFFF]/10 border-[#00FFFF]/40 text-[#00FFFF]' : 'bg-sky-50 border-sky-200 text-sky-600'} border flex items-center justify-center transition-transform active:scale-95 disabled:opacity-40`}
+              onClick={() =>
+                emails.length > 0 && handleSwipe(emails[emails.length - 1], 'RIGHT')
+              }
+              className={`w-10 h-10 rounded-full ${
+                isDarkTheme
+                  ? 'bg-[#00FFFF]/10 border-[#00FFFF]/40 text-[#00FFFF]'
+                  : 'bg-sky-50 border-sky-200 text-sky-600'
+              } border flex items-center justify-center transition-transform active:scale-95 disabled:opacity-40`}
             >
               <Archive size={18} />
             </button>
           </div>
 
           {/* Android Gesture Bar */}
-          <div className={`h-4 flex items-center justify-center ${isDarkTheme ? 'bg-[#121218]' : 'bg-[#F8FAFC]'}`}>
-            <div className={`w-28 h-1 ${isDarkTheme ? 'bg-gray-600' : 'bg-slate-300'} rounded-full`} />
+          <div
+            className={`h-4 flex items-center justify-center ${
+              isDarkTheme ? 'bg-[#121218]' : 'bg-[#F8FAFC]'
+            }`}
+          >
+            <div
+              className={`w-28 h-1 ${isDarkTheme ? 'bg-gray-600' : 'bg-slate-300'} rounded-full`}
+            />
           </div>
         </div>
       </div>
 
       {/* Side Information Box */}
-      <div className={`max-w-md ${isDarkTheme ? 'bg-[#15151A] border-[#1E1E28] text-gray-300' : 'bg-white border-slate-200 text-slate-700 shadow-xl'} border rounded-2xl p-6 space-y-4 text-sm transition-colors`}>
+      <div
+        className={`max-w-md ${
+          isDarkTheme
+            ? 'bg-[#15151A] border-[#1E1E28] text-gray-300'
+            : 'bg-white border-slate-200 text-slate-700 shadow-xl'
+        } border rounded-2xl p-6 space-y-5 text-sm transition-colors`}
+      >
+        {/* Gmail Live Connection Card */}
+        <div
+          className={`p-4 rounded-2xl border ${
+            isLiveGmailMode
+              ? isDarkTheme
+                ? 'bg-emerald-500/10 border-emerald-500/30'
+                : 'bg-emerald-50 border-emerald-300'
+              : isDarkTheme
+              ? 'bg-[#1C1C28] border-[#2A2A3E]'
+              : 'bg-slate-50 border-slate-200'
+          } space-y-3`}
+        >
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <Mail
+                size={18}
+                className={isLiveGmailMode ? 'text-emerald-400' : 'text-sky-500'}
+              />
+              <span className="font-bold text-xs">
+                {isLiveGmailMode ? 'Gmail Connected (Live)' : 'Gmail Integration'}
+              </span>
+            </div>
+            {isLiveGmailMode && (
+              <span className="flex items-center gap-1 text-[10px] font-mono text-emerald-400 px-2 py-0.5 rounded-full bg-emerald-500/15 border border-emerald-500/30">
+                <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-ping" />
+                LIVE
+              </span>
+            )}
+          </div>
+
+          {isLiveGmailMode && currentUser ? (
+            <div className="space-y-2">
+              <div className="text-xs">
+                <p className="font-semibold text-white truncate">{currentUser.displayName || 'Google Account'}</p>
+                <p className="text-[11px] text-gray-400 font-mono truncate">{currentUser.email}</p>
+              </div>
+              <div className="flex items-center gap-2 pt-1">
+                <button
+                  onClick={() => accessToken && loadRealGmailData(accessToken)}
+                  disabled={isLoadingEmails}
+                  className="px-3 py-1.5 rounded-xl text-xs font-semibold bg-emerald-600 hover:bg-emerald-500 text-white flex items-center gap-1.5 transition-all"
+                >
+                  <RefreshCw size={12} className={isLoadingEmails ? 'animate-spin' : ''} />
+                  <span>Sync Inbox</span>
+                </button>
+                <button
+                  onClick={handleGoogleLogout}
+                  className="px-3 py-1.5 rounded-xl text-xs font-semibold border border-red-500/30 text-red-400 hover:bg-red-500/10 transition-colors"
+                >
+                  Sign Out
+                </button>
+              </div>
+            </div>
+          ) : (
+            <div className="space-y-2.5">
+              <p className="text-xs text-gray-400 leading-relaxed">
+                Connect your real Gmail account with OAuth 2.0 to triage your live messages right inside the simulator.
+              </p>
+              <GoogleSignInButton
+                onClick={handleGoogleSignIn}
+                disabled={isSigningInGoogle}
+                isDarkTheme={isDarkTheme}
+                label={isSigningInGoogle ? 'Connecting...' : 'Sign in with Google'}
+                size="md"
+                className="w-full"
+              />
+              {authError && (
+                <div className="flex items-center gap-1.5 text-xs text-red-400">
+                  <AlertCircle size={14} className="shrink-0" />
+                  <span>{authError}</span>
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2 font-bold text-base" style={{ color: primaryAccent }}>
             <Sparkles size={20} />
@@ -1004,7 +1633,11 @@ export default function AndroidSimulator({
           </div>
           <button
             onClick={() => setShowSettings(true)}
-            className={`text-xs px-2.5 py-1 rounded-lg ${isDarkTheme ? 'bg-[#22222E] hover:bg-[#2A2A38] text-white border-[#333344]' : 'bg-slate-100 hover:bg-slate-200 text-slate-800 border-slate-300'} border transition-colors`}
+            className={`text-xs px-2.5 py-1 rounded-lg ${
+              isDarkTheme
+                ? 'bg-[#22222E] hover:bg-[#2A2A38] text-white border-[#333344]'
+                : 'bg-slate-100 hover:bg-slate-200 text-slate-800 border-slate-300'
+            } border transition-colors`}
           >
             Open Settings
           </button>
@@ -1015,24 +1648,76 @@ export default function AndroidSimulator({
         </p>
         <ul className={`space-y-2.5 text-xs ${isDarkTheme ? 'text-gray-300' : 'text-slate-600'}`}>
           <li className="flex items-start gap-2">
-            <span className={`px-1.5 py-0.5 rounded font-mono shrink-0 ${isDarkTheme ? 'bg-[#00FFFF]/15 text-[#00FFFF]' : 'bg-sky-100 text-sky-700'}`}>LONG PRESS</span>
-            <span><strong>Long press on any card</strong> (or tap the center bottom button) to open the label selector. No swipe activity required.</span>
+            <span
+              className={`px-1.5 py-0.5 rounded font-mono shrink-0 ${
+                isDarkTheme ? 'bg-[#00FFFF]/15 text-[#00FFFF]' : 'bg-sky-100 text-sky-700'
+              }`}
+            >
+              SWIPE RIGHT
+            </span>
+            <span>
+              <strong>Archive</strong> email in Gmail (removes from Inbox and marks as triaged).
+            </span>
           </li>
           <li className="flex items-start gap-2">
-            <span className={`px-1.5 py-0.5 rounded font-mono shrink-0 ${isDarkTheme ? 'bg-[#FF00FF]/15 text-[#FF00FF]' : 'bg-pink-100 text-pink-700'}`}>ACCOUNT LABELS</span>
-            <span>Labels are <strong>refreshed anytime the app is opened</strong> from the user's Gmail account via a dropdown popup window.</span>
+            <span
+              className={`px-1.5 py-0.5 rounded font-mono shrink-0 ${
+                isDarkTheme ? 'bg-[#FF3366]/15 text-[#FF3366]' : 'bg-red-100 text-red-700'
+              }`}
+            >
+              SWIPE LEFT
+            </span>
+            <span>
+              <strong>Trash</strong> email in Gmail with a mandatory confirmation dialog to protect user data.
+            </span>
           </li>
           <li className="flex items-start gap-2">
-            <span className={`px-1.5 py-0.5 rounded font-mono shrink-0 ${isDarkTheme ? 'bg-[#10B981]/15 text-[#10B981]' : 'bg-emerald-100 text-emerald-700'}`}>3-IN-1 TRIAGE</span>
-            <span>Selecting a label immediately <strong>applies the label</strong> in Gmail, <strong>marks it as read</strong>, and <strong>moves it from the inbox</strong>.</span>
+            <span
+              className={`px-1.5 py-0.5 rounded font-mono shrink-0 ${
+                isDarkTheme ? 'bg-[#FF00FF]/15 text-[#FF00FF]' : 'bg-pink-100 text-pink-700'
+              }`}
+            >
+              SWIPE UP
+            </span>
+            <span>
+              Apply <strong>Needs Response</strong> label and mark read in your Gmail account.
+            </span>
           </li>
           <li className="flex items-start gap-2">
-            <span className={`px-1.5 py-0.5 rounded font-mono shrink-0 ${isDarkTheme ? 'bg-[#007BFF]/15 text-[#007BFF]' : 'bg-blue-100 text-blue-700'}`}>UNDO SUPPORT</span>
-            <span>Full Material 3 Snackbar undo restores the email to the stack and reverses the Gmail API triage action.</span>
+            <span
+              className={`px-1.5 py-0.5 rounded font-mono shrink-0 ${
+                isDarkTheme ? 'bg-[#007BFF]/15 text-[#007BFF]' : 'bg-blue-100 text-blue-700'
+              }`}
+            >
+              SWIPE DOWN
+            </span>
+            <span>
+              <strong>Mark as Read</strong> in Gmail without archiving.
+            </span>
           </li>
           <li className="flex items-start gap-2">
-            <span className={`px-1.5 py-0.5 rounded font-mono shrink-0 ${isDarkTheme ? 'bg-[#FF3366]/15 text-[#FF3366]' : 'bg-red-100 text-red-700'}`}>ICON-ONLY POPUP</span>
-            <span>Centered feedback popups display <strong>strictly the action icon</strong> with zero distracting text.</span>
+            <span
+              className={`px-1.5 py-0.5 rounded font-mono shrink-0 ${
+                isDarkTheme ? 'bg-[#10B981]/15 text-[#10B981]' : 'bg-emerald-100 text-emerald-700'
+              }`}
+            >
+              LONG PRESS
+            </span>
+            <span>
+              <strong>Long press on any card</strong> (or tap center bottom icon) to assign any of your live Gmail labels.
+            </span>
+          </li>
+          <li className="flex items-start gap-2">
+            <span
+              className={`px-1.5 py-0.5 rounded font-mono shrink-0 ${
+                isDarkTheme ? 'bg-amber-500/15 text-amber-400' : 'bg-amber-100 text-amber-700'
+              }`}
+            >
+              UNDO
+            </span>
+            <span>
+              Material 3 Snackbar undo immediately reverses the Gmail REST API operation.
+            </span>
           </li>
         </ul>
       </div>
@@ -1041,6 +1726,7 @@ export default function AndroidSimulator({
 }
 
 interface SwipeableCardProps {
+  key?: React.Key;
   email: MockEmail;
   isTop: boolean;
   isDarkTheme: boolean;
@@ -1048,7 +1734,6 @@ interface SwipeableCardProps {
   cardBorderColor: string;
   onSwipe: (dir: SwipeDirection) => void;
   onLongPress: () => void;
-  key?: React.Key;
 }
 
 function SwipeableCard({
@@ -1063,7 +1748,6 @@ function SwipeableCard({
   const x = useMotionValue(0);
   const y = useMotionValue(0);
   const rotate = useTransform(x, [-200, 200], [-18, 18]);
-
   const longPressTimerRef = useRef<NodeJS.Timeout | null>(null);
   const isDraggingRef = useRef(false);
 
@@ -1111,7 +1795,9 @@ function SwipeableCard({
   const cardBg = isDarkTheme ? 'bg-[#15151A]' : 'bg-[#FFFFFF]';
   const subjectColor = isDarkTheme ? 'text-white' : 'text-slate-900';
   const snippetColor = isDarkTheme ? 'text-gray-400' : 'text-slate-600';
-  const tagBg = isDarkTheme ? 'bg-[#FF00FF]/15 text-[#FF00FF] border-[#FF00FF]/30' : 'bg-pink-50 text-pink-600 border-pink-200';
+  const tagBg = isDarkTheme
+    ? 'bg-[#FF00FF]/15 text-[#FF00FF] border-[#FF00FF]/30'
+    : 'bg-pink-50 text-pink-600 border-pink-200';
 
   return (
     <motion.div
@@ -1154,23 +1840,33 @@ function SwipeableCard({
           <span className={`text-[11px] font-bold px-2 py-0.5 rounded border ${tagBg}`}>
             {email.category}
           </span>
-          <span className={`text-[10px] font-mono ${isDarkTheme ? 'text-gray-500' : 'text-slate-400'}`}>Today</span>
+          <div className="flex items-center gap-1.5">
+            {email.isReal && (
+              <span className="text-[9px] px-1.5 py-0.5 rounded font-mono font-bold bg-emerald-500/15 text-emerald-400 border border-emerald-500/30">
+                GMAIL
+              </span>
+            )}
+            <span
+              className={`text-[10px] font-mono ${
+                isDarkTheme ? 'text-gray-500' : 'text-slate-400'
+              }`}
+            >
+              Today
+            </span>
+          </div>
         </div>
-        <h4 
-          className="text-base font-bold truncate mb-1"
-          style={{ color: primaryAccent }}
-        >
+
+        <h4 className="text-base font-bold truncate mb-1" style={{ color: primaryAccent }}>
           {email.sender}
         </h4>
+
         <h3 className={`text-lg font-extrabold ${subjectColor} leading-snug line-clamp-3 mb-3`}>
           {email.subject}
         </h3>
       </div>
 
       <div className={`pt-2 border-t ${isDarkTheme ? 'border-[#22222E]/80' : 'border-slate-100'}`}>
-        <p className={`text-xs ${snippetColor} line-clamp-6 leading-relaxed`}>
-          {email.snippet}
-        </p>
+        <p className={`text-xs ${snippetColor} line-clamp-6 leading-relaxed`}>{email.snippet}</p>
       </div>
     </motion.div>
   );

@@ -1,6 +1,10 @@
 package com.example.zeroinbox
 
+import android.accounts.AccountManager
 import android.app.Activity
+import android.content.Context
+import android.content.Intent
+import android.content.SharedPreferences
 import android.util.Log
 import androidx.credentials.CredentialManager
 import androidx.credentials.CustomCredential
@@ -8,20 +12,64 @@ import androidx.credentials.GetCredentialRequest
 import androidx.credentials.GetCredentialResponse
 import com.google.android.libraries.identity.googleid.GetGoogleIdOption
 import com.google.android.libraries.identity.googleid.GoogleIdTokenCredential
+import com.google.api.client.googleapis.extensions.android.gms.auth.GoogleAccountCredential
+import com.google.api.services.gmail.GmailScopes
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
-class AuthManager(private val activity: Activity) {
+class AuthManager(private val context: Context) {
 
-    // IMPORTANT: Replace this with the Web Client ID you created in Google Cloud Console
-    private val WEB_CLIENT_ID = "YOUR_WEB_CLIENT_ID_HERE.apps.googleusercontent.com"
-    private val credentialManager = CredentialManager.create(activity)
+    companion object {
+        private const val PREFS_NAME = "zero_inbox_auth_prefs"
+        private const val KEY_SAVED_ACCOUNT = "saved_google_account"
+        private const val WEB_CLIENT_ID = "683169336275-0n04hpf7nf0apm025u4midmdtuggass5.apps.googleusercontent.com"
+    }
 
-    suspend fun signIn(): String? = withContext(Dispatchers.IO) {
+    private val prefs: SharedPreferences = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+    private val credentialManager = CredentialManager.create(context)
+
+    /**
+     * Retrieves any previously saved Google account email from SharedPreferences.
+     */
+    fun getSavedAccount(): String? {
+        val saved = prefs.getString(KEY_SAVED_ACCOUNT, null)
+        return if (!saved.isNullOrBlank()) saved else null
+    }
+
+    /**
+     * Persists the selected or manually confirmed account email.
+     */
+    fun saveAccount(accountName: String) {
+        prefs.edit().putString(KEY_SAVED_ACCOUNT, accountName.trim()).apply()
+    }
+
+    /**
+     * Clears the saved account upon sign out.
+     */
+    fun clearAccount() {
+        prefs.edit().remove(KEY_SAVED_ACCOUNT).apply()
+    }
+
+    /**
+     * Creates an Intent to launch Android's native Google Account Chooser dialog.
+     * This allows the user to select from all Google accounts installed on the device.
+     */
+    fun createAccountPickerIntent(): Intent {
+        val credential = GoogleAccountCredential.usingOAuth2(
+            context,
+            listOf(GmailScopes.GMAIL_MODIFY)
+        )
+        return credential.newChooseAccountIntent()
+    }
+
+    /**
+     * Modern Jetpack Credential Manager Sign-In attempt.
+     */
+    suspend fun signInWithCredentialManager(activity: Activity): String? = withContext(Dispatchers.IO) {
         val googleIdOption = GetGoogleIdOption.Builder()
             .setFilterByAuthorizedAccounts(false)
             .setServerClientId(WEB_CLIENT_ID)
-            .setAutoSelectEnabled(true)
+            .setAutoSelectEnabled(false)
             .build()
 
         val request = GetCredentialRequest.Builder()
@@ -33,18 +81,21 @@ class AuthManager(private val activity: Activity) {
                 request = request,
                 context = activity
             )
-            
             val credential = result.credential
-            if (credential is CustomCredential && 
-                credential.type == GoogleIdTokenCredential.TYPE_GOOGLE_ID_TOKEN_CREDENTIAL) {
-                
+            if (credential is CustomCredential &&
+                credential.type == GoogleIdTokenCredential.TYPE_GOOGLE_ID_TOKEN_CREDENTIAL
+            ) {
                 val googleIdTokenCredential = GoogleIdTokenCredential.createFrom(credential.data)
-                // Returning the email address to be used by GoogleAccountCredential in the Repository
-                return@withContext googleIdTokenCredential.id
+                val email = googleIdTokenCredential.id
+                if (email.isNotBlank()) {
+                    saveAccount(email)
+                    return@withContext email
+                }
             }
         } catch (e: Exception) {
-            Log.e("AuthManager", "Sign-in failed", e)
+            Log.w("AuthManager", "Credential Manager not available or cancelled: ${e.message}")
         }
         return@withContext null
     }
 }
+

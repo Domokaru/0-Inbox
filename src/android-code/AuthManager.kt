@@ -13,8 +13,8 @@ import kotlinx.coroutines.withContext
 
 class AuthManager(private val activity: Activity) {
 
-    // IMPORTANT: Replace this with the Web Client ID you created in Google Cloud Console
-    private val WEB_CLIENT_ID = "YOUR_WEB_CLIENT_ID_HERE.apps.googleusercontent.com"
+    // Real Web Client ID provisioned via Google Cloud Console
+    private val WEB_CLIENT_ID = "683169336275-0n04hpf7nf0apm025u4midmdtuggass5.apps.googleusercontent.com"
     private val credentialManager = CredentialManager.create(activity)
 
     suspend fun signIn(): String? = withContext(Dispatchers.IO) {

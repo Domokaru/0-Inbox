@@ -12,18 +12,25 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.AccountCircle
 import androidx.compose.material.icons.filled.Archive
-import androidx.compose.material.icons.filled.Delete
-import androidx.compose.material.icons.filled.Drafts
-import androidx.compose.material.icons.filled.Edit
-import androidx.compose.material.icons.filled.Label
-import androidx.compose.material.icons.filled.DriveFileMove
-import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.ArrowDropDown
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Drafts
+import androidx.compose.material.icons.filled.DriveFileMove
+import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.Email
+import androidx.compose.material.icons.filled.ExitToApp
+import androidx.compose.material.icons.filled.Label
+import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -49,18 +56,25 @@ import kotlin.math.abs
 fun SwipeableMailStack(
     viewModel: MailViewModel,
     isDarkTheme: Boolean = true,
-    onToggleTheme: (Boolean) -> Unit = {}
+    onToggleTheme: (Boolean) -> Unit = {},
+    onLaunchAccountPicker: () -> Unit = {},
+    onManualAccountEntered: (String) -> Unit = {},
+    onSignOut: () -> Unit = {}
 ) {
     val emails by viewModel.emails.collectAsState()
     val isLoading by viewModel.isLoading.collectAsState()
     val hasMore by viewModel.hasMore.collectAsState()
     val labels by viewModel.labels.collectAsState()
     val isRefreshingLabels by viewModel.isRefreshingLabels.collectAsState()
+    val currentAccount by viewModel.currentAccount.collectAsState()
+    val isDemoMode by viewModel.isDemoMode.collectAsState()
+    val errorMessage by viewModel.errorMessage.collectAsState()
 
     val coroutineScope = rememberCoroutineScope()
     val snackbarHostState = remember { SnackbarHostState() }
     var activePopup by remember { mutableStateOf<PopupAction?>(null) }
     var showSettingsDialog by remember { mutableStateOf(false) }
+    var showEmailInputDialog by remember { mutableStateOf(false) }
     var emailForLabelDialog by remember { mutableStateOf<EmailModel?>(null) }
 
     // Theme-derived palette
@@ -77,13 +91,13 @@ fun SwipeableMailStack(
             .background(backgroundColor),
         contentAlignment = Alignment.Center
     ) {
-        // Top App Header: Pixelated "0 INBOX" with Slashed Zero and Double-Tap Detection for Settings
-        Box(
+        // Top App Header: Pixelated "0 INBOX" with Slashed Zero and Account Status
+        Column(
             modifier = Modifier
                 .align(Alignment.TopCenter)
                 .fillMaxWidth()
-                .padding(top = 20.dp, start = 20.dp, end = 20.dp),
-            contentAlignment = Alignment.Center
+                .padding(top = 18.dp, start = 16.dp, end = 16.dp),
+            horizontalAlignment = Alignment.CenterHorizontally
         ) {
             Box(
                 modifier = Modifier
@@ -92,16 +106,193 @@ fun SwipeableMailStack(
                         detectTapGestures(
                             onDoubleTap = {
                                 showSettingsDialog = true
+                            },
+                            onTap = {
+                                showSettingsDialog = true
                             }
                         )
                     }
-                    .padding(horizontal = 16.dp, vertical = 8.dp)
+                    .padding(horizontal = 12.dp, vertical = 4.dp)
             ) {
                 PixelZeroInboxLogo(
                     zeroColor = primaryAccent,
                     inboxColor = secondaryAccent,
                     pixelSizeDp = 3.5f
                 )
+            }
+
+            // Active Account / Demo Indicator Chip
+            if (currentAccount != null || isDemoMode) {
+                Surface(
+                    onClick = { showSettingsDialog = true },
+                    shape = RoundedCornerShape(16.dp),
+                    color = if (isDarkTheme) Color(0xFF1E1E28) else Color(0xFFF1F5F9),
+                    border = BorderStroke(1.dp, tertiaryAccent.copy(alpha = 0.5f)),
+                    modifier = Modifier.padding(top = 4.dp)
+                ) {
+                    Row(
+                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .size(7.dp)
+                                .background(if (isDemoMode) secondaryAccent else Color(0xFF10B981), CircleShape)
+                        )
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text(
+                            text = if (isDemoMode) "⚡ DEMO MODE" else (currentAccount ?: ""),
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Medium,
+                            color = textColor.copy(alpha = 0.85f)
+                        )
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Icon(
+                            imageVector = Icons.Default.ArrowDropDown,
+                            contentDescription = "Account Settings",
+                            tint = tertiaryAccent,
+                            modifier = Modifier.size(16.dp)
+                        )
+                    }
+                }
+            }
+        }
+
+        // Error message notification banner
+        errorMessage?.let { error ->
+            Card(
+                modifier = Modifier
+                    .align(Alignment.TopCenter)
+                    .padding(top = 80.dp, start = 16.dp, end = 16.dp)
+                    .fillMaxWidth(),
+                colors = CardDefaults.cardColors(
+                    containerColor = if (isDarkTheme) Color(0xFF2C1518) else Color(0xFFFEE2E2)
+                ),
+                border = BorderStroke(1.dp, Color(0xFFEF4444)),
+                shape = RoundedCornerShape(12.dp)
+            ) {
+                Row(
+                    modifier = Modifier.padding(10.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Warning,
+                        contentDescription = null,
+                        tint = Color(0xFFEF4444),
+                        modifier = Modifier.size(18.dp)
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text(
+                        text = error,
+                        fontSize = 11.sp,
+                        color = if (isDarkTheme) Color(0xFFFCA5A5) else Color(0xFF991B1B),
+                        modifier = Modifier.weight(1f)
+                    )
+                    Spacer(modifier = Modifier.width(4.dp))
+                    TextButton(
+                        onClick = {
+                            viewModel.clearError()
+                            viewModel.loadNextBatch()
+                        },
+                        contentPadding = PaddingValues(horizontal = 6.dp, vertical = 2.dp)
+                    ) {
+                        Text("RETRY", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = Color(0xFFEF4444))
+                    }
+                }
+            }
+        }
+
+        // Connect Gmail Account Screen when neither account nor demo is chosen
+        if (currentAccount == null && !isDemoMode) {
+            Card(
+                modifier = Modifier
+                    .fillMaxWidth(0.9f)
+                    .padding(horizontal = 20.dp)
+                    .border(2.dp, primaryAccent, RoundedCornerShape(20.dp)),
+                shape = RoundedCornerShape(20.dp),
+                colors = CardDefaults.cardColors(
+                    containerColor = cardSurface
+                )
+            ) {
+                Column(
+                    modifier = Modifier.padding(24.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .size(54.dp)
+                            .background(primaryAccent.copy(alpha = 0.15f), CircleShape)
+                            .border(1.5.dp, primaryAccent, CircleShape),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Email,
+                            contentDescription = null,
+                            tint = primaryAccent,
+                            modifier = Modifier.size(26.dp)
+                        )
+                    }
+                    Spacer(modifier = Modifier.height(14.dp))
+                    Text(
+                        text = "CONNECT GMAIL",
+                        fontSize = 18.sp,
+                        fontWeight = FontWeight.Black,
+                        letterSpacing = 1.5.sp,
+                        color = textColor
+                    )
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Text(
+                        text = "Select your Google account or enter your email address to triage your inbox with 4-way gesture swipes.",
+                        fontSize = 12.5.sp,
+                        color = if (isDarkTheme) Color(0xFFAAAAAA) else Color(0xFF64748B),
+                        textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                        lineHeight = 17.sp
+                    )
+                    Spacer(modifier = Modifier.height(20.dp))
+                    Button(
+                        onClick = onLaunchAccountPicker,
+                        modifier = Modifier.fillMaxWidth().height(46.dp),
+                        shape = RoundedCornerShape(12.dp),
+                        colors = ButtonDefaults.buttonColors(containerColor = primaryAccent)
+                    ) {
+                        Icon(Icons.Default.AccountCircle, contentDescription = null, tint = Color.Black, modifier = Modifier.size(18.dp))
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(
+                            text = "CHOOSE GOOGLE ACCOUNT",
+                            color = Color.Black,
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 12.sp
+                        )
+                    }
+                    Spacer(modifier = Modifier.height(10.dp))
+                    OutlinedButton(
+                        onClick = { showEmailInputDialog = true },
+                        modifier = Modifier.fillMaxWidth().height(46.dp),
+                        shape = RoundedCornerShape(12.dp),
+                        border = BorderStroke(1.5.dp, secondaryAccent)
+                    ) {
+                        Icon(Icons.Default.Edit, contentDescription = null, tint = secondaryAccent, modifier = Modifier.size(16.dp))
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(
+                            text = "ENTER GMAIL ADDRESS",
+                            color = secondaryAccent,
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 12.sp
+                        )
+                    }
+                    Spacer(modifier = Modifier.height(10.dp))
+                    TextButton(
+                        onClick = { viewModel.enableDemoMode() },
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Text(
+                            text = "TRY DEMO MODE (SAMPLE INBOX)",
+                            color = tertiaryAccent,
+                            fontWeight = FontWeight.SemiBold,
+                            fontSize = 12.sp
+                        )
+                    }
+                }
             }
         }
 
