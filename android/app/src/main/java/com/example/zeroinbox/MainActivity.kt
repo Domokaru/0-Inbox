@@ -70,7 +70,6 @@ class MainActivity : ComponentActivity() {
 
         setContent {
             var isDarkTheme by remember { mutableStateOf(true) }
-            val availableAccounts = remember { authManager.getAvailableGoogleAccounts() }
 
             ZeroInboxTheme(darkTheme = isDarkTheme) {
                 Surface(
@@ -80,7 +79,6 @@ class MainActivity : ComponentActivity() {
                     SwipeableMailStack(
                         viewModel = viewModel,
                         isDarkTheme = isDarkTheme,
-                        availableAccounts = availableAccounts,
                         signingSha1 = authManager.getCertificateFingerprint(),
                         onToggleTheme = { isDarkTheme = it },
                         onLaunchAccountPicker = {

@@ -28,19 +28,19 @@ import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Drafts
-import androidx.compose.material.icons.filled.DriveFileMove
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Email
-import androidx.compose.material.icons.filled.ExitToApp
 import androidx.compose.material.icons.filled.Info
-import androidx.compose.material.icons.filled.Label
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material.icons.filled.KeyboardArrowDown
-import androidx.compose.material.icons.filled.KeyboardArrowLeft
-import androidx.compose.material.icons.filled.KeyboardArrowRight
+import androidx.compose.material.icons.automirrored.filled.KeyboardArrowLeft
+import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
+import androidx.compose.material.icons.automirrored.filled.ExitToApp
+import androidx.compose.material.icons.automirrored.filled.Label
+import androidx.compose.material.icons.automirrored.filled.DriveFileMove
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -70,7 +70,6 @@ import kotlin.math.abs
 fun SwipeableMailStack(
     viewModel: MailViewModel,
     isDarkTheme: Boolean = true,
-    availableAccounts: List<String> = emptyList(),
     signingSha1: String = "",
     onToggleTheme: (Boolean) -> Unit = {},
     onLaunchAccountPicker: () -> Unit = {},
@@ -506,7 +505,7 @@ fun SwipeableMailStack(
                     val trashTint = if (isDarkTheme) Color(0xFFFF3366) else Color(0xFFEF4444)
                     Box(modifier = Modifier.fillMaxSize()) {
                         Icon(
-                            Icons.Default.KeyboardArrowLeft,
+                            Icons.AutoMirrored.Filled.KeyboardArrowLeft,
                             contentDescription = null,
                             tint = trashTint.copy(alpha = 0.7f),
                             modifier = Modifier.align(Alignment.CenterStart).padding(start = 2.dp).size(14.dp)
@@ -536,7 +535,7 @@ fun SwipeableMailStack(
                 ) {
                     Box(modifier = Modifier.fillMaxSize()) {
                         Icon(
-                            Icons.Default.KeyboardArrowRight,
+                            Icons.AutoMirrored.Filled.KeyboardArrowRight,
                             contentDescription = null,
                             tint = primaryAccent.copy(alpha = 0.7f),
                             modifier = Modifier.align(Alignment.CenterEnd).padding(end = 2.dp).size(14.dp)
@@ -563,7 +562,7 @@ fun SwipeableMailStack(
                         .background(labelColor.copy(alpha = 0.15f), CircleShape)
                         .border(1.dp, labelColor.copy(alpha = 0.4f), CircleShape)
                 ) {
-                    Icon(Icons.Default.DriveFileMove, contentDescription = "Assign Gmail Label", tint = labelColor)
+                    Icon(Icons.AutoMirrored.Filled.DriveFileMove, contentDescription = "Assign Gmail Label", tint = labelColor)
                 }
             }
         }
@@ -627,13 +626,12 @@ fun SwipeableMailStack(
                 isRefreshing = isRefreshingLabels,
                 isDarkTheme = isDarkTheme,
                 primaryAccent = primaryAccent,
-                secondaryAccent = secondaryAccent,
                 onRefresh = { viewModel.refreshLabels() },
                 onSelectLabel = { chosenLabel ->
                     emailForLabelDialog = null
                     // 1. Show Screen-Centered Popup (Icon only, zero words)
                     coroutineScope.launch {
-                        activePopup = PopupAction(icon = Icons.Default.DriveFileMove, color = primaryAccent)
+                        activePopup = PopupAction(icon = Icons.AutoMirrored.Filled.DriveFileMove, color = primaryAccent)
                         delay(700)
                         activePopup = null
                     }
@@ -664,7 +662,6 @@ fun SwipeableMailStack(
                 isDarkTheme = isDarkTheme,
                 filterTwoDays = filterTwoDays,
                 primaryAccent = primaryAccent,
-                secondaryAccent = secondaryAccent,
                 onToggleTheme = onToggleTheme,
                 onToggleFilter = { viewModel.setFilterTwoDays(it) },
                 onSwitchAccount = {
@@ -909,7 +906,6 @@ fun SettingsDialog(
     isDarkTheme: Boolean,
     filterTwoDays: Boolean,
     primaryAccent: Color,
-    secondaryAccent: Color,
     onToggleTheme: (Boolean) -> Unit,
     onToggleFilter: (Boolean) -> Unit,
     onSwitchAccount: () -> Unit,
@@ -992,7 +988,7 @@ fun SettingsDialog(
                         onClick = onSignOut,
                         modifier = Modifier.fillMaxWidth()
                     ) {
-                        Icon(Icons.Default.ExitToApp, contentDescription = null, tint = Color(0xFFEF4444), modifier = Modifier.size(16.dp))
+                        Icon(Icons.AutoMirrored.Filled.ExitToApp, contentDescription = null, tint = Color(0xFFEF4444), modifier = Modifier.size(16.dp))
                         Spacer(modifier = Modifier.width(6.dp))
                         Text("Disconnect / Sign Out", color = Color(0xFFEF4444), fontWeight = FontWeight.Bold, fontSize = 12.sp)
                     }
@@ -1216,7 +1212,6 @@ fun LabelSelectionDialog(
     isRefreshing: Boolean,
     isDarkTheme: Boolean,
     primaryAccent: Color,
-    secondaryAccent: Color,
     onRefresh: () -> Unit,
     onSelectLabel: (LabelModel) -> Unit,
     onDismiss: () -> Unit
@@ -1240,7 +1235,7 @@ fun LabelSelectionDialog(
             ) {
                 Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.weight(1f)) {
                     Icon(
-                        imageVector = Icons.Default.DriveFileMove,
+                        imageVector = Icons.AutoMirrored.Filled.DriveFileMove,
                         contentDescription = null,
                         tint = primaryAccent,
                         modifier = Modifier.size(24.dp)
@@ -1324,7 +1319,7 @@ fun LabelSelectionDialog(
                                 color = if (selectedLabel != null) (if (isDarkTheme) Color.White else Color.Black) else Color.Gray
                             )
                             Icon(
-                                imageVector = Icons.Default.Label,
+                                imageVector = Icons.AutoMirrored.Filled.Label,
                                 contentDescription = null,
                                 tint = primaryAccent,
                                 modifier = Modifier.size(18.dp)
