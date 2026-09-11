@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { X, Download, Github, Terminal, Check, PackageCheck, Sparkles, Smartphone } from 'lucide-react';
+import { X, Download, Github, Terminal, Check, PackageCheck, Sparkles, Smartphone, ExternalLink, Copy, AlertCircle } from 'lucide-react';
 import JSZip from 'jszip';
 
 // Import raw source strings for zip packaging
@@ -332,27 +332,93 @@ git push -u origin main`}
 
           {/* Method 2: Direct 1-Click ZIP Download */}
           <div
-            className={`p-5 rounded-xl border flex flex-col sm:flex-row sm:items-center justify-between gap-4 ${
+            className={`p-5 rounded-xl border space-y-4 ${
               isDarkTheme ? 'bg-[#181822] border-[#2A2A38]' : 'bg-slate-50 border-slate-200'
             }`}
           >
-            <div className="space-y-1">
-              <div className="flex items-center gap-2">
-                <PackageCheck size={18} className={isDarkTheme ? 'text-[#FF00FF]' : 'text-pink-600'} />
-                <h3 className="text-sm font-bold">2. Download Standalone Android Project (.ZIP)</h3>
+            <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-4">
+              <div className="space-y-1">
+                <div className="flex items-center gap-2">
+                  <PackageCheck size={18} className={isDarkTheme ? 'text-[#FF00FF]' : 'text-pink-600'} />
+                  <h3 className="text-sm font-bold">2. Download Standalone Android Project (.ZIP)</h3>
+                </div>
+                <p className={`text-xs ${isDarkTheme ? 'text-gray-400' : 'text-slate-500'}`}>
+                  Complete ready-to-build Android Studio project containing all Kotlin Compose source files, Gradle wrapper, AndroidManifest, resources, and build configuration.
+                </p>
               </div>
-              <p className={`text-xs ${isDarkTheme ? 'text-gray-400' : 'text-slate-500'}`}>
-                Instant 1-click download of the complete Android Studio project containing all Kotlin files, Gradle wrapper, AndroidManifest, and APK build scripts.
-              </p>
+
+              {/* Action Buttons */}
+              <div className="flex flex-wrap sm:flex-nowrap items-center gap-2">
+                <a
+                  href="/ZeroInbox-Android-Project.zip"
+                  download="ZeroInbox-Android-Project.zip"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="px-4 py-2.5 rounded-xl bg-gradient-to-r from-[#007BFF] to-[#00FFFF] text-white font-bold text-xs shadow-lg shadow-blue-500/20 hover:opacity-95 active:scale-95 transition-all flex items-center justify-center gap-2 no-underline cursor-pointer"
+                >
+                  <Download size={15} />
+                  <span>Download (.zip)</span>
+                </a>
+
+                <a
+                  href="/ZeroInbox-Android-Project.zip"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className={`px-3.5 py-2.5 rounded-xl border text-xs font-semibold flex items-center justify-center gap-1.5 transition-all ${
+                    isDarkTheme
+                      ? 'border-[#38384E] bg-[#1F1F2C] text-gray-200 hover:bg-[#282838]'
+                      : 'border-slate-300 bg-white text-slate-700 hover:bg-slate-100'
+                  }`}
+                  title="Open file URL directly in a new tab"
+                >
+                  <ExternalLink size={14} />
+                  <span>New Tab</span>
+                </a>
+              </div>
             </div>
-            <button
-              onClick={handleDownloadZip}
-              disabled={isZipping}
-              className="shrink-0 px-4 py-2.5 rounded-xl bg-gradient-to-r from-[#007BFF] to-[#00FFFF] text-white font-bold text-xs shadow-lg shadow-blue-500/20 hover:opacity-95 active:scale-95 transition-all flex items-center justify-center gap-2 cursor-pointer"
-            >
-              <Download size={15} />
-              <span>{isZipping ? 'Packaging ZIP...' : 'Download Project (.zip)'}</span>
-            </button>
+
+            {/* Direct URL & Terminal Curl Command */}
+            <div className={`p-3 rounded-lg border text-xs space-y-2 ${isDarkTheme ? 'bg-[#12121A] border-[#252534]' : 'bg-white border-slate-200'}`}>
+              <div className="flex items-center justify-between">
+                <span className={`text-[11px] font-semibold flex items-center gap-1.5 ${isDarkTheme ? 'text-gray-300' : 'text-slate-700'}`}>
+                  <Terminal size={13} />
+                  Direct Download Link / Terminal Command:
+                </span>
+                <button
+                  onClick={() =>
+                    copyCommand(
+                      `${window.location.origin}/ZeroInbox-Android-Project.zip`,
+                      'direct-url'
+                    )
+                  }
+                  className="text-[10px] text-[#00FFFF] hover:underline flex items-center gap-1 cursor-pointer font-medium"
+                >
+                  {copiedCmd === 'direct-url' ? <Check size={12} className="text-emerald-400" /> : <Copy size={12} />}
+                  {copiedCmd === 'direct-url' ? 'URL Copied!' : 'Copy Direct URL'}
+                </button>
+              </div>
+
+              <div className="flex items-center gap-2">
+                <input
+                  type="text"
+                  readOnly
+                  value={`${typeof window !== 'undefined' ? window.location.origin : ''}/ZeroInbox-Android-Project.zip`}
+                  className={`w-full text-[11px] font-mono p-2 rounded border focus:outline-none select-all ${
+                    isDarkTheme
+                      ? 'bg-black/40 border-[#2A2A38] text-gray-300'
+                      : 'bg-slate-50 border-slate-200 text-slate-700'
+                  }`}
+                />
+              </div>
+
+              {/* Iframe Notice */}
+              <div className="flex items-start gap-2 pt-1">
+                <AlertCircle size={14} className="text-amber-400 shrink-0 mt-0.5" />
+                <p className={`text-[11px] leading-relaxed ${isDarkTheme ? 'text-gray-400' : 'text-slate-500'}`}>
+                  <strong>Why in-frame clicks might fail:</strong> Web browsers prevent download prompts inside embedded iframes. If clicking <strong>Download (.zip)</strong> doesn't open a file dialog, click <strong>New Tab</strong> or paste the link above into a new browser window.
+                </p>
+              </div>
+            </div>
           </div>
 
           {/* Local Android Studio / CLI Build command */}

@@ -154,7 +154,7 @@ class GmailRepository(private val context: Context) {
             "me", 
             threadId, 
             ModifyThreadRequest()
-                .setAddLabelIds(listOf(needsResponseLabelId))
+                .setAddLabelIds(listOf(needsResponseLabelId!!))
                 .setRemoveLabelIds(listOf("UNREAD")) // Ensure it acts like it was triaged
         ).execute()
     }

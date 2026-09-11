@@ -78,6 +78,7 @@ dependencies {
 
     // Google API Client for Gmail REST v1
     implementation("com.google.api-client:google-api-client-android:2.2.0")
+    implementation("com.google.http-client:google-http-client-gson:1.43.3")
     implementation("com.google.apis:google-api-services-gmail:v1-rev20220404-2.0.0")
     implementation("com.google.auth:google-auth-library-oauth2-http:1.19.0")
 

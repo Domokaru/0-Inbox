@@ -221,7 +221,7 @@ fun SwipeableMailStack(
                 onClick = {
                     if (emails.isNotEmpty()) {
                         val email = emails.last()
-                        showPopupAndClear(SwipeDirection.LEFT, isDarkTheme) { activePopup = it }
+                        showPopupAndClear(SwipeDirection.LEFT, isDarkTheme, coroutineScope) { activePopup = it }
                         viewModel.processEmailSwipe(email, SwipeDirection.LEFT)
                     }
                 },
@@ -238,7 +238,7 @@ fun SwipeableMailStack(
                 onClick = {
                     if (emails.isNotEmpty()) {
                         val email = emails.last()
-                        showPopupAndClear(SwipeDirection.UP, isDarkTheme) { activePopup = it }
+                        showPopupAndClear(SwipeDirection.UP, isDarkTheme, coroutineScope) { activePopup = it }
                         viewModel.processEmailSwipe(email, SwipeDirection.UP)
                     }
                 },
@@ -270,7 +270,7 @@ fun SwipeableMailStack(
                 onClick = {
                     if (emails.isNotEmpty()) {
                         val email = emails.last()
-                        showPopupAndClear(SwipeDirection.DOWN, isDarkTheme) { activePopup = it }
+                        showPopupAndClear(SwipeDirection.DOWN, isDarkTheme, coroutineScope) { activePopup = it }
                         viewModel.processEmailSwipe(email, SwipeDirection.DOWN)
                     }
                 },
@@ -287,7 +287,7 @@ fun SwipeableMailStack(
                 onClick = {
                     if (emails.isNotEmpty()) {
                         val email = emails.last()
-                        showPopupAndClear(SwipeDirection.RIGHT, isDarkTheme) { activePopup = it }
+                        showPopupAndClear(SwipeDirection.RIGHT, isDarkTheme, coroutineScope) { activePopup = it }
                         viewModel.processEmailSwipe(email, SwipeDirection.RIGHT)
                     }
                 },
@@ -373,6 +373,7 @@ fun SwipeableMailStack(
 @Composable
 fun InfoCard(
     isDarkTheme: Boolean,
+    coroutineScope: kotlinx.coroutines.CoroutineScope,
     borderColor: Color,
     onClick: () -> Unit
 ) {
@@ -413,6 +414,7 @@ fun EmailCard(
     email: EmailModel,
     isTopCard: Boolean,
     isDarkTheme: Boolean,
+    coroutineScope: kotlinx.coroutines.CoroutineScope,
     cardSurface: Color,
     borderColor: Color,
     senderColor: Color,
@@ -554,6 +556,7 @@ fun NeonIconOnlyPopup(popup: PopupAction) {
 private fun showPopupAndClear(
     direction: SwipeDirection,
     isDarkTheme: Boolean,
+    coroutineScope: kotlinx.coroutines.CoroutineScope,
     setPopup: (PopupAction?) -> Unit
 ) {
     val (icon, color) = when (direction) {
@@ -575,7 +578,7 @@ private fun showPopupAndClear(
         )
     }
 
-    kotlinx.coroutines.GlobalScope.launch {
+    coroutineScope.launch {
         setPopup(PopupAction(icon, color))
         delay(700) // Strictly less than 1 second
         setPopup(null)
@@ -585,6 +588,7 @@ private fun showPopupAndClear(
 @Composable
 fun SettingsDialog(
     isDarkTheme: Boolean,
+    coroutineScope: kotlinx.coroutines.CoroutineScope,
     onToggleTheme: (Boolean) -> Unit,
     onDismiss: () -> Unit
 ) {
@@ -638,6 +642,7 @@ fun LabelSelectionDialog(
     labels: List<LabelModel>,
     isRefreshing: Boolean,
     isDarkTheme: Boolean,
+    coroutineScope: kotlinx.coroutines.CoroutineScope,
     primaryAccent: Color,
     secondaryAccent: Color,
     onRefresh: () -> Unit,

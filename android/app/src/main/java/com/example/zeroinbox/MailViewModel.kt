@@ -148,24 +148,26 @@ class MailViewModel(private val repository: GmailRepository) : ViewModel() {
                 if (action.customLabel != null) {
                     // Revert custom label: remove label and restore to inbox
                     repository.unapplyLabel(action.email.threadId, action.customLabel.id)
-                } else when (action.direction) {
-                    SwipeDirection.RIGHT -> {
-                        // Un-archive (restore to inbox)
-                        repository.unarchiveEmail(action.email.threadId)
+                } else {
+                    when (action.direction) {
+                        SwipeDirection.RIGHT -> {
+                            // Un-archive (restore to inbox)
+                            repository.unarchiveEmail(action.email.threadId)
+                        }
+                        SwipeDirection.LEFT -> {
+                            // Un-trash (restore from bin)
+                            repository.untrashEmail(action.email.threadId)
+                        }
+                        SwipeDirection.UP -> {
+                            // Remove "Needs Response" label
+                            repository.removeNeedsResponse(action.email.threadId)
+                        }
+                        SwipeDirection.DOWN -> {
+                            // Mark back as Unread
+                            repository.markUnread(action.email.threadId)
+                        }
+                        null -> {}
                     }
-                    SwipeDirection.LEFT -> {
-                        // Un-trash (restore from bin)
-                        repository.untrashEmail(action.email.threadId)
-                    }
-                    SwipeDirection.UP -> {
-                        // Remove "Needs Response" label
-                        repository.removeNeedsResponse(action.email.threadId)
-                    }
-                    SwipeDirection.DOWN -> {
-                        // Mark back as Unread
-                        repository.markUnread(action.email.threadId)
-                    }
-                    null -> {}
                 }
             } catch (e: Exception) {
                 e.printStackTrace()
