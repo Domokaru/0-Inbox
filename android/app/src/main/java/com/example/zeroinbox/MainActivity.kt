@@ -81,6 +81,7 @@ class MainActivity : ComponentActivity() {
                         viewModel = viewModel,
                         isDarkTheme = isDarkTheme,
                         availableAccounts = availableAccounts,
+                        signingSha1 = authManager.getCertificateFingerprint(),
                         onToggleTheme = { isDarkTheme = it },
                         onLaunchAccountPicker = {
                             try {
@@ -93,10 +94,6 @@ class MainActivity : ComponentActivity() {
                                     Toast.LENGTH_LONG
                                 ).show()
                             }
-                        },
-                        onManualAccountEntered = { email ->
-                            authManager.saveAccount(email)
-                            viewModel.setAccount(email)
                         },
                         onSignOut = {
                             authManager.clearAccount()

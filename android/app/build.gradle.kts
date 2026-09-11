@@ -20,6 +20,15 @@ android {
         }
     }
 
+    signingConfigs {
+        create("fixedDebug") {
+            storeFile = file("debug.keystore")
+            storePassword = "android"
+            keyAlias = "androiddebugkey"
+            keyPassword = "android"
+        }
+    }
+
     buildTypes {
         release {
             isMinifyEnabled = false
@@ -27,9 +36,11 @@ android {
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
             )
+            signingConfig = signingConfigs.getByName("fixedDebug")
         }
         debug {
             isDebuggable = true
+            signingConfig = signingConfigs.getByName("fixedDebug")
         }
     }
     compileOptions {

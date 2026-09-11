@@ -31,22 +31,34 @@ class GmailRepository(private val context: Context) {
 
     private var gmailService: Gmail? = null
     private var needsResponseLabelId: String? = null
+    var credential: GoogleAccountCredential? = null
+        private set
     var activeAccount: String? = null
         private set
 
     fun initialize(accountName: String) {
         activeAccount = accountName
-        val credential = GoogleAccountCredential.usingOAuth2(
+        val cred = GoogleAccountCredential.usingOAuth2(
             context, listOf(GmailScopes.GMAIL_MODIFY)
         ).apply {
             selectedAccountName = accountName
         }
+        credential = cred
 
         gmailService = Gmail.Builder(
             GoogleNetHttpTransport.newTrustedTransport(),
             GsonFactory.getDefaultInstance(),
-            credential
+            cred
         ).setApplicationName("Zero Inbox").build()
+    }
+
+    /**
+     * Proactively checks for an OAuth token from Google Play Services.
+     * Throws UserRecoverableAuthIOException if user consent dialog is needed.
+     */
+    suspend fun verifyOrRequestAuth(): String? = withContext(Dispatchers.IO) {
+        val cred = credential ?: throw IllegalStateException("Gmail service not initialized. Please connect your Gmail account.")
+        cred.token
     }
 
     suspend fun fetchEmails(pageToken: String? = null, filterTwoDays: Boolean = true): Pair<List<EmailModel>, String?> = withContext(Dispatchers.IO) {

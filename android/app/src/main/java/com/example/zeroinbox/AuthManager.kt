@@ -65,27 +65,66 @@ class AuthManager(private val context: Context) {
     }
 
     /**
+     * Reads the SHA-1 or SHA-256 certificate fingerprint of the APK at runtime.
+     * Useful for diagnostics and verifying against Google Cloud Console.
+     */
+    fun getCertificateFingerprint(algorithm: String = "SHA1"): String {
+        return try {
+            val packageInfo = if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.P) {
+                context.packageManager.getPackageInfo(
+                    context.packageName,
+                    android.content.pm.PackageManager.GET_SIGNING_CERTIFICATES
+                )
+            } else {
+                @Suppress("DEPRECATION")
+                context.packageManager.getPackageInfo(
+                    context.packageName,
+                    android.content.pm.PackageManager.GET_SIGNATURES
+                )
+            }
+
+            val signatures = if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.P) {
+                packageInfo.signingInfo?.apkContentsSigners
+            } else {
+                @Suppress("DEPRECATION")
+                packageInfo.signatures
+            }
+
+            val cert = signatures?.firstOrNull()?.toByteArray() ?: return "Unknown"
+            val md = java.security.MessageDigest.getInstance(algorithm)
+            val digest = md.digest(cert)
+            digest.joinToString(":") { String.format("%02X", it) }
+        } catch (e: Exception) {
+            "Unavailable: ${e.message}"
+        }
+    }
+
+    /**
      * Creates an Intent to launch Android's native Google Account Chooser dialog.
      * This allows the user to select from all Google accounts installed on the device.
      */
     fun createAccountPickerIntent(): Intent {
+        return try {
+            val credential = GoogleAccountCredential.usingOAuth2(
+                context,
+                listOf(GmailScopes.GMAIL_MODIFY)
+            )
+            credential.newChooseAccountIntent()
+                ?: createFallbackAccountChooser()
+        } catch (e: Throwable) {
+            createFallbackAccountChooser()
+        }
+    }
+
+    private fun createFallbackAccountChooser(): Intent {
         return try {
             val options = AccountPicker.AccountChooserOptions.Builder()
                 .setAllowableAccountsTypes(listOf("com.google"))
                 .setAlwaysShowAccountPicker(true)
                 .build()
             AccountPicker.newChooseAccountIntent(options)
-        } catch (e: Throwable) {
-            try {
-                val credential = GoogleAccountCredential.usingOAuth2(
-                    context,
-                    listOf(GmailScopes.GMAIL_MODIFY)
-                )
-                credential.newChooseAccountIntent()
-                    ?: AccountManager.newChooseAccountIntent(null, null, arrayOf("com.google"), null, null, null, null)
-            } catch (t: Throwable) {
-                AccountManager.newChooseAccountIntent(null, null, arrayOf("com.google"), null, null, null, null)
-            }
+        } catch (t: Throwable) {
+            AccountManager.newChooseAccountIntent(null, null, arrayOf("com.google"), null, null, null, null)
         }
     }
 

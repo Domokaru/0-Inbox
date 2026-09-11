@@ -22,14 +22,17 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AccountCircle
 import androidx.compose.material.icons.filled.Archive
 import androidx.compose.material.icons.filled.ArrowDropDown
+import android.widget.Toast
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Drafts
 import androidx.compose.material.icons.filled.DriveFileMove
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Email
 import androidx.compose.material.icons.filled.ExitToApp
+import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Label
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Settings
@@ -48,6 +51,9 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalClipboardManager
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -65,9 +71,9 @@ fun SwipeableMailStack(
     viewModel: MailViewModel,
     isDarkTheme: Boolean = true,
     availableAccounts: List<String> = emptyList(),
+    signingSha1: String = "",
     onToggleTheme: (Boolean) -> Unit = {},
     onLaunchAccountPicker: () -> Unit = {},
-    onManualAccountEntered: (String) -> Unit = {},
     onSignOut: () -> Unit = {}
 ) {
     val emails by viewModel.emails.collectAsState()
@@ -84,15 +90,8 @@ fun SwipeableMailStack(
     val snackbarHostState = remember { SnackbarHostState() }
     var activePopup by remember { mutableStateOf<PopupAction?>(null) }
     var showSettingsDialog by remember { mutableStateOf(false) }
-    var showAccountSelectionDialog by remember { mutableStateOf(currentAccount == null && !isDemoMode) }
-    var showEmailInputDialog by remember { mutableStateOf(false) }
+    var showSetupHelpDialog by remember { mutableStateOf(false) }
     var emailForLabelDialog by remember { mutableStateOf<EmailModel?>(null) }
-
-    LaunchedEffect(currentAccount, isDemoMode) {
-        if (currentAccount != null || isDemoMode) {
-            showAccountSelectionDialog = false
-        }
-    }
 
     // Theme-derived palette
     val backgroundColor = if (isDarkTheme) Color(0xFF0F0F13) else Color(0xFFFFFFFF)
@@ -205,15 +204,29 @@ fun SwipeableMailStack(
                         modifier = Modifier.weight(1f)
                     )
                     Spacer(modifier = Modifier.width(4.dp))
+                    OutlinedButton(
+                        onClick = { showSetupHelpDialog = true },
+                        contentPadding = PaddingValues(horizontal = 6.dp, vertical = 2.dp),
+                        border = BorderStroke(1.dp, Color(0xFFEF4444).copy(alpha = 0.5f)),
+                        shape = RoundedCornerShape(6.dp)
+                    ) {
+                        Text(
+                            text = "HELP",
+                            fontSize = 10.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = Color(0xFFEF4444)
+                        )
+                    }
+                    Spacer(modifier = Modifier.width(4.dp))
                     TextButton(
                         onClick = {
                             viewModel.clearError()
-                            viewModel.loadNextBatch()
+                            viewModel.retryAuth()
                         },
                         contentPadding = PaddingValues(horizontal = 6.dp, vertical = 2.dp)
                     ) {
                         Text(
-                            text = if (error.contains("permission", ignoreCase = true)) "GRANT ACCESS" else "RETRY",
+                            text = if (error.contains("permission", ignoreCase = true) || error.contains("consent", ignoreCase = true)) "GRANT" else "RETRY",
                             fontSize = 11.sp,
                             fontWeight = FontWeight.Bold,
                             color = Color(0xFFEF4444)
@@ -241,7 +254,7 @@ fun SwipeableMailStack(
                 ) {
                     Box(
                         modifier = Modifier
-                            .size(54.dp)
+                            .size(56.dp)
                             .background(primaryAccent.copy(alpha = 0.15f), CircleShape)
                             .border(1.5.dp, primaryAccent, CircleShape),
                         contentAlignment = Alignment.Center
@@ -250,7 +263,7 @@ fun SwipeableMailStack(
                             imageVector = Icons.Default.Email,
                             contentDescription = null,
                             tint = primaryAccent,
-                            modifier = Modifier.size(26.dp)
+                            modifier = Modifier.size(28.dp)
                         )
                     }
                     Spacer(modifier = Modifier.height(14.dp))
@@ -263,7 +276,7 @@ fun SwipeableMailStack(
                     )
                     Spacer(modifier = Modifier.height(8.dp))
                     Text(
-                        text = "Select your Google account or enter your email address to triage your inbox with 4-way gesture swipes.",
+                        text = "Connect your Google account to triage your Gmail inbox with 4-way gesture swipes.",
                         fontSize = 12.5.sp,
                         color = if (isDarkTheme) Color(0xFFAAAAAA) else Color(0xFF64748B),
                         textAlign = androidx.compose.ui.text.style.TextAlign.Center,
@@ -272,36 +285,20 @@ fun SwipeableMailStack(
                     Spacer(modifier = Modifier.height(20.dp))
                     Button(
                         onClick = onLaunchAccountPicker,
-                        modifier = Modifier.fillMaxWidth().height(46.dp),
+                        modifier = Modifier.fillMaxWidth().height(48.dp),
                         shape = RoundedCornerShape(12.dp),
                         colors = ButtonDefaults.buttonColors(containerColor = primaryAccent)
                     ) {
-                        Icon(Icons.Default.AccountCircle, contentDescription = null, tint = Color.Black, modifier = Modifier.size(18.dp))
+                        Icon(Icons.Default.AccountCircle, contentDescription = null, tint = Color.Black, modifier = Modifier.size(20.dp))
                         Spacer(modifier = Modifier.width(8.dp))
                         Text(
-                            text = "CHOOSE GOOGLE ACCOUNT",
+                            text = "CONNECT GMAIL ACCOUNT",
                             color = Color.Black,
                             fontWeight = FontWeight.Bold,
-                            fontSize = 12.sp
+                            fontSize = 13.sp
                         )
                     }
-                    Spacer(modifier = Modifier.height(10.dp))
-                    OutlinedButton(
-                        onClick = { showAccountSelectionDialog = true },
-                        modifier = Modifier.fillMaxWidth().height(46.dp),
-                        shape = RoundedCornerShape(12.dp),
-                        border = BorderStroke(1.5.dp, secondaryAccent)
-                    ) {
-                        Icon(Icons.Default.Edit, contentDescription = null, tint = secondaryAccent, modifier = Modifier.size(16.dp))
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Text(
-                            text = "CHOOSE OR ENTER EMAIL",
-                            color = secondaryAccent,
-                            fontWeight = FontWeight.Bold,
-                            fontSize = 12.sp
-                        )
-                    }
-                    Spacer(modifier = Modifier.height(10.dp))
+                    Spacer(modifier = Modifier.height(12.dp))
                     TextButton(
                         onClick = { viewModel.enableDemoMode() },
                         modifier = Modifier.fillMaxWidth()
@@ -311,6 +308,19 @@ fun SwipeableMailStack(
                             color = tertiaryAccent,
                             fontWeight = FontWeight.SemiBold,
                             fontSize = 12.sp
+                        )
+                    }
+                    Spacer(modifier = Modifier.height(4.dp))
+                    TextButton(
+                        onClick = { showSetupHelpDialog = true },
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Icon(Icons.Default.Info, contentDescription = null, tint = Color.Gray, modifier = Modifier.size(14.dp))
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text(
+                            text = "Google Cloud Setup Guide",
+                            color = Color.Gray,
+                            fontSize = 11.sp
                         )
                     }
                 }
@@ -595,26 +605,17 @@ fun SwipeableMailStack(
             )
         }
 
-        // Account Selection & Setup Dialog
-        if (showAccountSelectionDialog) {
-            AccountSelectionDialog(
+        // Google Cloud & Gmail Setup Instructions Dialog
+        if (showSetupHelpDialog) {
+            GoogleCloudSetupDialog(
                 isDarkTheme = isDarkTheme,
                 primaryAccent = primaryAccent,
-                secondaryAccent = secondaryAccent,
-                availableAccounts = availableAccounts,
-                onSelectAccount = { email ->
-                    showAccountSelectionDialog = false
-                    onManualAccountEntered(email)
-                },
-                onLaunchPicker = {
-                    showAccountSelectionDialog = false
+                signingSha1 = signingSha1,
+                onDismiss = { showSetupHelpDialog = false },
+                onRetryConnect = {
+                    showSetupHelpDialog = false
                     onLaunchAccountPicker()
-                },
-                onEnableDemoMode = {
-                    showAccountSelectionDialog = false
-                    viewModel.enableDemoMode()
-                },
-                onDismiss = { showAccountSelectionDialog = false }
+                }
             )
         }
 
@@ -668,11 +669,11 @@ fun SwipeableMailStack(
                 onToggleFilter = { viewModel.setFilterTwoDays(it) },
                 onSwitchAccount = {
                     showSettingsDialog = false
-                    showAccountSelectionDialog = true
+                    onLaunchAccountPicker()
                 },
-                onEnterEmailManually = {
+                onShowSetupHelp = {
                     showSettingsDialog = false
-                    showAccountSelectionDialog = true
+                    showSetupHelpDialog = true
                 },
                 onEnableDemoMode = {
                     showSettingsDialog = false
@@ -912,7 +913,7 @@ fun SettingsDialog(
     onToggleTheme: (Boolean) -> Unit,
     onToggleFilter: (Boolean) -> Unit,
     onSwitchAccount: () -> Unit,
-    onEnterEmailManually: () -> Unit,
+    onShowSetupHelp: () -> Unit,
     onEnableDemoMode: () -> Unit,
     onSignOut: () -> Unit,
     onDismiss: () -> Unit
@@ -959,20 +960,20 @@ fun SettingsDialog(
                 ) {
                     Icon(Icons.Default.AccountCircle, contentDescription = null, tint = Color.Black, modifier = Modifier.size(16.dp))
                     Spacer(modifier = Modifier.width(6.dp))
-                    Text("Switch Google Account", color = Color.Black, fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                    Text("Connect / Switch Gmail", color = Color.Black, fontWeight = FontWeight.Bold, fontSize = 12.sp)
                 }
 
                 Spacer(modifier = Modifier.height(8.dp))
 
                 OutlinedButton(
-                    onClick = onEnterEmailManually,
+                    onClick = onShowSetupHelp,
                     modifier = Modifier.fillMaxWidth(),
                     shape = RoundedCornerShape(10.dp),
                     border = BorderStroke(1.dp, secondaryAccent)
                 ) {
-                    Icon(Icons.Default.Edit, contentDescription = null, tint = secondaryAccent, modifier = Modifier.size(14.dp))
+                    Icon(Icons.Default.Info, contentDescription = null, tint = secondaryAccent, modifier = Modifier.size(14.dp))
                     Spacer(modifier = Modifier.width(6.dp))
-                    Text("Enter Email Address", color = secondaryAccent, fontWeight = FontWeight.SemiBold, fontSize = 12.sp)
+                    Text("Google Cloud & OAuth Guide", color = secondaryAccent, fontWeight = FontWeight.SemiBold, fontSize = 12.sp)
                 }
 
                 Spacer(modifier = Modifier.height(8.dp))
@@ -1059,32 +1060,34 @@ fun SettingsDialog(
 }
 
 @Composable
-fun AccountSelectionDialog(
+fun GoogleCloudSetupDialog(
     isDarkTheme: Boolean,
     primaryAccent: Color,
-    secondaryAccent: Color,
-    availableAccounts: List<String>,
-    onSelectAccount: (String) -> Unit,
-    onLaunchPicker: () -> Unit,
-    onEnableDemoMode: () -> Unit,
-    onDismiss: () -> Unit
+    signingSha1: String,
+    onDismiss: () -> Unit,
+    onRetryConnect: () -> Unit
 ) {
-    var emailText by remember { mutableStateOf("") }
-    var isError by remember { mutableStateOf(false) }
+    val context = LocalContext.current
+    val clipboardManager = LocalClipboardManager.current
+    val effectiveSha1 = if (signingSha1.isNotBlank() && signingSha1 != "Unknown" && !signingSha1.startsWith("Unavailable")) {
+        signingSha1
+    } else {
+        "D1:4C:EC:9B:48:D5:FB:13:D3:4B:9E:45:3D:32:0F:9C:FA:8F:F3:65"
+    }
 
     AlertDialog(
         onDismissRequest = onDismiss,
         title = {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Icon(
-                    imageVector = Icons.Default.AccountCircle,
+                    imageVector = Icons.Default.Info,
                     contentDescription = null,
                     tint = primaryAccent,
                     modifier = Modifier.size(24.dp)
                 )
                 Spacer(modifier = Modifier.width(8.dp))
                 Text(
-                    text = "Select Gmail Account",
+                    text = "Gmail Connection Guide",
                     fontWeight = FontWeight.Bold,
                     fontSize = 18.sp
                 )
@@ -1095,146 +1098,111 @@ fun AccountSelectionDialog(
                 modifier = Modifier
                     .fillMaxWidth()
                     .verticalScroll(rememberScrollState())
-                    .padding(vertical = 4.dp)
+                    .padding(vertical = 4.dp),
+                verticalArrangement = Arrangement.spacedBy(10.dp)
             ) {
                 Text(
-                    text = "Choose or enter the Google account to triage with 0 Inbox:",
-                    fontSize = 13.sp,
+                    text = "0 Inbox uses Android's official Google Play Services Gmail API. To authorize connections from your device:",
+                    fontSize = 12.5.sp,
+                    lineHeight = 17.sp,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
 
-                if (availableAccounts.isNotEmpty()) {
-                    Spacer(modifier = Modifier.height(14.dp))
-                    Text(
-                        text = "ACCOUNTS ON THIS DEVICE",
-                        fontSize = 11.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = primaryAccent,
-                        letterSpacing = 1.sp
-                    )
-                    Spacer(modifier = Modifier.height(6.dp))
-                    availableAccounts.forEach { acc ->
-                        Surface(
-                            shape = RoundedCornerShape(10.dp),
-                            color = if (isDarkTheme) Color(0xFF1E1E28) else Color(0xFFF1F5F9),
-                            border = BorderStroke(1.dp, primaryAccent.copy(alpha = 0.5f)),
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(vertical = 3.dp)
-                                .clickable { onSelectAccount(acc) }
+                // Step 1: Package Name
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = CardDefaults.cardColors(
+                        containerColor = if (isDarkTheme) Color(0xFF1B1B24) else Color(0xFFF1F5F9)
+                    ),
+                    shape = RoundedCornerShape(10.dp)
+                ) {
+                    Column(modifier = Modifier.padding(10.dp)) {
+                        Text("1. PACKAGE NAME", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = primaryAccent)
+                        Spacer(modifier = Modifier.height(2.dp))
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
                         ) {
-                            Row(
-                                modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
-                                verticalAlignment = Alignment.CenterVertically
+                            Text("com.example.zeroinbox", fontSize = 12.sp, fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace)
+                            IconButton(
+                                onClick = {
+                                    clipboardManager.setText(AnnotatedString("com.example.zeroinbox"))
+                                    Toast.makeText(context, "Package name copied!", Toast.LENGTH_SHORT).show()
+                                },
+                                modifier = Modifier.size(28.dp)
                             ) {
-                                Icon(
-                                    Icons.Default.Email,
-                                    contentDescription = null,
-                                    tint = primaryAccent,
-                                    modifier = Modifier.size(18.dp)
-                                )
-                                Spacer(modifier = Modifier.width(10.dp))
-                                Text(
-                                    text = acc,
-                                    fontSize = 13.sp,
-                                    fontWeight = FontWeight.Medium,
-                                    modifier = Modifier.weight(1f)
-                                )
-                                Icon(
-                                    Icons.Default.Check,
-                                    contentDescription = null,
-                                    tint = primaryAccent,
-                                    modifier = Modifier.size(16.dp)
-                                )
+                                Icon(Icons.Default.ContentCopy, contentDescription = "Copy", modifier = Modifier.size(16.dp))
                             }
                         }
                     }
                 }
 
-                Spacer(modifier = Modifier.height(14.dp))
-
-                Button(
-                    onClick = onLaunchPicker,
-                    modifier = Modifier.fillMaxWidth().height(46.dp),
-                    shape = RoundedCornerShape(10.dp),
-                    colors = ButtonDefaults.buttonColors(containerColor = primaryAccent)
-                ) {
-                    Icon(Icons.Default.AccountCircle, contentDescription = null, tint = Color.Black, modifier = Modifier.size(18.dp))
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Text("CHOOSE VIA GOOGLE PICKER", color = Color.Black, fontWeight = FontWeight.Bold, fontSize = 12.sp)
-                }
-
-                Spacer(modifier = Modifier.height(14.dp))
-
-                Row(
+                // Step 2: SHA-1 Fingerprint
+                Card(
                     modifier = Modifier.fillMaxWidth(),
-                    verticalAlignment = Alignment.CenterVertically
+                    colors = CardDefaults.cardColors(
+                        containerColor = if (isDarkTheme) Color(0xFF1B1B24) else Color(0xFFF1F5F9)
+                    ),
+                    shape = RoundedCornerShape(10.dp)
                 ) {
-                    Box(modifier = Modifier.weight(1f).height(1.dp).background(Color.Gray.copy(alpha = 0.3f)))
-                    Text(
-                        text = "  OR ENTER EMAIL  ",
-                        fontSize = 10.sp,
-                        color = Color.Gray,
-                        fontWeight = FontWeight.Bold
-                    )
-                    Box(modifier = Modifier.weight(1f).height(1.dp).background(Color.Gray.copy(alpha = 0.3f)))
-                }
-
-                Spacer(modifier = Modifier.height(10.dp))
-
-                OutlinedTextField(
-                    value = emailText,
-                    onValueChange = {
-                        emailText = it
-                        isError = false
-                    },
-                    label = { Text("Gmail Address") },
-                    placeholder = { Text("you@gmail.com") },
-                    singleLine = true,
-                    isError = isError,
-                    modifier = Modifier.fillMaxWidth()
-                )
-                if (isError) {
-                    Spacer(modifier = Modifier.height(4.dp))
-                    Text(
-                        text = "Please enter a valid Gmail address.",
-                        color = MaterialTheme.colorScheme.error,
-                        fontSize = 11.sp
-                    )
-                }
-
-                Spacer(modifier = Modifier.height(10.dp))
-
-                Button(
-                    onClick = {
-                        val trimmed = emailText.trim()
-                        if (trimmed.isNotEmpty() && trimmed.contains("@")) {
-                            onSelectAccount(trimmed)
-                        } else {
-                            isError = true
+                    Column(modifier = Modifier.padding(10.dp)) {
+                        Text("2. SIGNING SHA-1 FINGERPRINT", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = primaryAccent)
+                        Spacer(modifier = Modifier.height(2.dp))
+                        Text(
+                            text = effectiveSha1,
+                            fontSize = 10.5.sp,
+                            fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace,
+                            lineHeight = 14.sp
+                        )
+                        Spacer(modifier = Modifier.height(6.dp))
+                        Button(
+                            onClick = {
+                                clipboardManager.setText(AnnotatedString(effectiveSha1))
+                                Toast.makeText(context, "SHA-1 fingerprint copied!", Toast.LENGTH_SHORT).show()
+                            },
+                            modifier = Modifier.fillMaxWidth().height(32.dp),
+                            shape = RoundedCornerShape(6.dp),
+                            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp)
+                        ) {
+                            Icon(Icons.Default.ContentCopy, contentDescription = null, modifier = Modifier.size(14.dp))
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text("Copy SHA-1 Fingerprint", fontSize = 11.sp)
                         }
-                    },
-                    modifier = Modifier.fillMaxWidth().height(42.dp),
-                    shape = RoundedCornerShape(10.dp),
-                    colors = ButtonDefaults.buttonColors(containerColor = secondaryAccent)
-                ) {
-                    Text("CONNECT THIS EMAIL", color = Color.Black, fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                    }
                 }
 
-                Spacer(modifier = Modifier.height(10.dp))
-
-                TextButton(
-                    onClick = onEnableDemoMode,
-                    modifier = Modifier.fillMaxWidth()
+                // Step 3: Google Cloud Steps
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = CardDefaults.cardColors(
+                        containerColor = if (isDarkTheme) Color(0xFF1B1B24) else Color(0xFFF1F5F9)
+                    ),
+                    shape = RoundedCornerShape(10.dp)
                 ) {
-                    Text("Try Demo Mode (Sample Inbox)", fontSize = 12.sp)
+                    Column(modifier = Modifier.padding(10.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                        Text("3. GOOGLE CLOUD CONSOLE CHECKLIST", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = primaryAccent)
+                        Text("• APIs & Services > Library: Ensure 'Gmail API' is Enabled.", fontSize = 11.5.sp)
+                        Text("• Credentials > Create Credentials > OAuth client ID: Choose 'Android', enter Package Name & SHA-1 above.", fontSize = 11.5.sp)
+                        Text("• OAuth consent screen > Test users: Add your Gmail address so Google allows your device to sign in.", fontSize = 11.5.sp)
+                    }
                 }
             }
         },
-        confirmButton = {},
         dismissButton = {
             TextButton(onClick = onDismiss) {
                 Text("CLOSE")
+            }
+        },
+        confirmButton = {
+            Button(
+                onClick = {
+                    onDismiss()
+                    onRetryConnect()
+                },
+                colors = ButtonDefaults.buttonColors(containerColor = primaryAccent)
+            ) {
+                Text("RECONNECT GMAIL", color = Color.Black, fontWeight = FontWeight.Bold, fontSize = 12.sp)
             }
         }
     )

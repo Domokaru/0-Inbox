@@ -79,7 +79,6 @@ class MailViewModel(private val repository: GmailRepository) : ViewModel() {
 
         repository.initialize(accountName)
         loadNextBatch()
-        refreshLabels()
     }
 
     fun enableDemoMode() {
@@ -115,10 +114,63 @@ class MailViewModel(private val repository: GmailRepository) : ViewModel() {
         return null
     }
 
+    private fun formatDetailedErrorMessage(throwable: Throwable?): String {
+        var current = throwable
+        var depth = 0
+        var fallbackMsg: String? = null
+
+        while (current != null && depth < 10) {
+            val msg = current.message
+            if (!msg.isNullOrBlank() && fallbackMsg == null && !msg.startsWith("com.google") && !msg.contains("Exception")) {
+                fallbackMsg = msg
+            }
+
+            if (current is com.google.api.client.googleapis.json.GoogleJsonResponseException) {
+                val details = current.details?.message
+                if (!details.isNullOrBlank()) return details
+                val errors = current.details?.errors?.firstOrNull()?.message
+                if (!errors.isNullOrBlank()) return errors
+                return "Google API error ${current.statusCode}: ${current.statusMessage}"
+            }
+
+            val msgLower = (msg ?: "").lowercase()
+            if (msgLower.contains("unregistered_on_api_console")) {
+                return "Google Cloud Setup Required: Android OAuth client ID is not registered for package 'com.example.zeroinbox' with your keystore SHA-1."
+            }
+            if (msgLower.contains("developer_error")) {
+                return "Google Play Services Error: Keystore SHA-1 fingerprint mismatch with Google Cloud Console."
+            }
+            if (msgLower.contains("access_denied") || msgLower.contains("access blocked") || msgLower.contains("not completed the google verification")) {
+                return "Access Blocked: Your Gmail address must be added to 'Test users' in Google Cloud Console > OAuth consent screen."
+            }
+            if (msgLower.contains("api has not been used") || msgLower.contains("disabled")) {
+                return "Gmail API is not enabled in your Google Cloud project. Enable it in Google Cloud Console."
+            }
+            current = current.cause
+            depth++
+        }
+
+        return fallbackMsg ?: throwable?.localizedMessage ?: "Failed to connect to Gmail. Check network or account permissions."
+    }
+
     fun onAuthRecoverySuccess() {
         _errorMessage.value = null
         loadNextBatch()
         refreshLabels()
+    }
+
+    fun onAuthRecoveryFailed() {
+        _errorMessage.value = "Google authorization was not completed. Please grant Gmail permissions to continue."
+    }
+
+    fun retryAuth() {
+        _errorMessage.value = null
+        val account = _currentAccount.value
+        if (account != null) {
+            setAccount(account)
+        } else {
+            loadNextBatch()
+        }
     }
 
     fun refreshLabels() {
@@ -159,6 +211,11 @@ class MailViewModel(private val repository: GmailRepository) : ViewModel() {
                 // In Compose Tinder stack, items at the end of the list are rendered on top
                 _emails.value = newEmails.reversed() + _emails.value
                 _hasMore.value = nextPageToken != null
+
+                // Once primary batch loads successfully, refresh labels in the background
+                if (_labels.value.isEmpty()) {
+                    refreshLabels()
+                }
             } catch (e: Exception) {
                 e.printStackTrace()
                 val recoveryIntent = findAuthRecoveryIntent(e)
@@ -166,7 +223,7 @@ class MailViewModel(private val repository: GmailRepository) : ViewModel() {
                     _authRecoveryIntent.emit(recoveryIntent)
                     _errorMessage.value = "Google permission required. Please grant access in the consent prompt."
                 } else {
-                    _errorMessage.value = e.localizedMessage ?: "Failed to connect to Gmail. Check network or account permissions."
+                    _errorMessage.value = formatDetailedErrorMessage(e)
                 }
             } finally {
                 _isLoading.value = false
