@@ -2,6 +2,8 @@ import { initializeApp, getApps, getApp } from 'firebase/app';
 import {
   getAuth,
   signInWithPopup,
+  signInWithRedirect,
+  getRedirectResult,
   GoogleAuthProvider,
   onAuthStateChanged,
   User,
@@ -30,6 +32,21 @@ export const initAuth = (
   onAuthSuccess?: (user: User, token: string) => void,
   onAuthFailure?: () => void
 ) => {
+  // Handle redirect result for mobile/PWA (APK) installations
+  getRedirectResult(auth)
+    .then((result) => {
+      if (result) {
+        const credential = GoogleAuthProvider.credentialFromResult(result);
+        if (credential?.accessToken) {
+          cachedAccessToken = credential.accessToken;
+          if (onAuthSuccess) onAuthSuccess(result.user, cachedAccessToken);
+        }
+      }
+    })
+    .catch((error) => {
+      console.error('Redirect sign-in error:', error);
+    });
+
   return onAuthStateChanged(auth, async (user: User | null) => {
     if (user) {
       if (cachedAccessToken) {
@@ -48,13 +65,23 @@ export const initAuth = (
 export const googleSignIn = async (): Promise<{ user: User; accessToken: string } | null> => {
   try {
     isSigningIn = true;
-    const result = await signInWithPopup(auth, provider);
-    const credential = GoogleAuthProvider.credentialFromResult(result);
-    if (!credential?.accessToken) {
-      throw new Error('No access token returned from Google Sign-In');
+    
+    const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
+    const isStandalone = window.matchMedia('(display-mode: standalone)').matches;
+
+    // Use Redirect for mobile devices or PWA/APK wrappers to prevent authorization issues
+    if (isMobile || isStandalone) {
+      await signInWithRedirect(auth, provider);
+      return null;
+    } else {
+      const result = await signInWithPopup(auth, provider);
+      const credential = GoogleAuthProvider.credentialFromResult(result);
+      if (!credential?.accessToken) {
+        throw new Error('No access token returned from Google Sign-In');
+      }
+      cachedAccessToken = credential.accessToken;
+      return { user: result.user, accessToken: cachedAccessToken };
     }
-    cachedAccessToken = credential.accessToken;
-    return { user: result.user, accessToken: cachedAccessToken };
   } catch (error: any) {
     if (error.code !== 'auth/popup-closed-by-user' && !error.message?.includes('popup-closed-by-user')) {
       console.error('Sign-in error:', error);
@@ -96,13 +123,13 @@ export async function fetchEmailsFromGmail(
   pageToken?: string,
   filterTwoDays: boolean = true
 ): Promise<{ emails: WebEmail[]; nextPageToken?: string }> {
-  const queryParts = ['(category:primary OR category:promotions OR category:social OR category:updates)'];
+  const queryParts = ['in:inbox'];
   if (filterTwoDays) {
     queryParts.push('newer_than:2d');
   }
   const query = encodeURIComponent(queryParts.join(' '));
   
-  let url = `https://gmail.googleapis.com/gmail/v1/users/me/messages?q=${query}&maxResults=50`;
+  let url = `https://gmail.googleapis.com/gmail/v1/users/me/messages?q=${query}&maxResults=500`;
   if (pageToken) {
     url += `&pageToken=${encodeURIComponent(pageToken)}`;
   }

@@ -1,5 +1,5 @@
 {
-  "name": "0 INBOX: Android Client",
+  "name": "0 Inbox",
   "description": "Jetpack Compose swipeable triage client with Neon & Pastel themes, Credential Manager, and Gmail API integration.",
   "requestFramePermissions": [],
   "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]

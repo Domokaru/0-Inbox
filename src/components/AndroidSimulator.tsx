@@ -850,28 +850,38 @@ export default function AndroidSimulator({
                   {isLiveGmailMode && accessToken ? (
                     <button
                       onClick={() => loadRealGmailData(accessToken)}
-                      className="px-3.5 py-1.5 rounded-xl text-white text-xs font-bold shadow-md transition-transform active:scale-95 flex items-center gap-1.5"
-                      style={{ backgroundColor: tertiaryAccent }}
+                      className="px-3 py-1.5 rounded-xl border text-xs font-semibold flex items-center gap-1.5 transition-all active:scale-95 shadow-sm"
+                      style={{
+                        backgroundColor: `${primaryAccent}18`,
+                        borderColor: `${primaryAccent}45`,
+                        color: primaryAccent,
+                      }}
                     >
-                      <RefreshCw size={13} />
-                      <span>Check New Mail</span>
+                      <span>More Email?</span>
                     </button>
                   ) : hasMore ? (
                     <button
                       onClick={handleFetchNextBatch}
-                      className="px-3.5 py-1.5 rounded-xl text-white text-xs font-bold shadow-md transition-transform active:scale-95 flex items-center gap-1"
-                      style={{ backgroundColor: tertiaryAccent }}
+                      className="px-3 py-1.5 rounded-xl border text-xs font-semibold flex items-center gap-1.5 transition-all active:scale-95 shadow-sm"
+                      style={{
+                        backgroundColor: `${primaryAccent}18`,
+                        borderColor: `${primaryAccent}45`,
+                        color: primaryAccent,
+                      }}
                     >
-                      <span>Fetch Next 20</span>
-                      <ChevronRight size={13} />
+                      <span>More Email?</span>
                     </button>
                   ) : (
                     <button
                       onClick={resetDemo}
-                      className="px-3.5 py-1.5 rounded-xl text-white text-xs font-bold shadow-md transition-transform active:scale-95"
-                      style={{ backgroundColor: tertiaryAccent }}
+                      className="px-3 py-1.5 rounded-xl border text-xs font-semibold flex items-center gap-1.5 transition-all active:scale-95 shadow-sm"
+                      style={{
+                        backgroundColor: `${primaryAccent}18`,
+                        borderColor: `${primaryAccent}45`,
+                        color: primaryAccent,
+                      }}
                     >
-                      Reload Demo
+                      <span>Reload Demo</span>
                     </button>
                   )}
                 </motion.div>
@@ -905,13 +915,17 @@ export default function AndroidSimulator({
                 >
                   {isLiveGmailMode
                     ? 'Swipe or tap to fetch the next batch from Gmail'
-                    : 'Swipe or tap to fetch next 20 via Gmail API'}
+                    : 'Swipe or tap to fetch more emails via Gmail API'}
                 </p>
                 <span
-                  className="px-4 py-2 rounded-xl text-white text-xs font-bold shadow-md flex items-center gap-1"
-                  style={{ backgroundColor: tertiaryAccent }}
+                  className="px-4 py-2 rounded-xl border text-xs font-semibold shadow-md flex items-center gap-1"
+                  style={{
+                    backgroundColor: `${primaryAccent}18`,
+                    borderColor: `${primaryAccent}45`,
+                    color: primaryAccent,
+                  }}
                 >
-                  Fetch Next 20 <ChevronRight size={14} />
+                  More Email?
                 </span>
               </motion.div>
             )}
@@ -927,6 +941,7 @@ export default function AndroidSimulator({
                   isDarkTheme={isDarkTheme}
                   primaryAccent={primaryAccent}
                   cardBorderColor={cardBorderColor}
+                  snackbarVisible={snackbarVisible}
                   onSwipe={(dir) => handleSwipe(email, dir)}
                   onLongPress={() => handleOpenLabelModal(email)}
                 />
@@ -973,7 +988,7 @@ export default function AndroidSimulator({
                   animate={{ y: 0, opacity: 1 }}
                   exit={{ y: 80, opacity: 0 }}
                   transition={{ type: 'spring', damping: 25, stiffness: 300 }}
-                  className={`absolute bottom-4 left-3 right-3 z-50 ${
+                  className={`absolute bottom-2 left-3 right-3 pointer-events-auto z-[60] ${
                     isDarkTheme
                       ? 'bg-[#1B1B26] border-[#007BFF]'
                       : 'bg-[#F1F5F9] border-[#60A5FA]'
@@ -1441,28 +1456,6 @@ export default function AndroidSimulator({
             </AnimatePresence>
           </div>
 
-          {/* Small text indicating unread count: Under cards, above bottom icons */}
-          <div
-            className={`py-2 px-4 text-center select-none flex items-center justify-center z-30 transition-colors bg-transparent border-transparent`}
-          >
-            <span className={`text-[11px] font-medium tracking-wide ${isDarkTheme ? 'text-gray-400' : 'text-slate-500'}`}>
-              <strong
-                className="font-bold font-mono text-xs"
-                style={{
-                  color:
-                    emails.length === 0
-                      ? primaryAccent
-                      : isDarkTheme
-                      ? '#FFFFFF'
-                      : '#0F172A',
-                }}
-              >
-                {emails.length}
-              </strong>{' '}
-              {emails.length === 1 ? 'email unread in inbox' : 'emails unread in inbox'}
-            </span>
-          </div>
-
           {/* Quick Trigger Buttons on Bottom */}
           <div
             className={`px-4 py-3 ${
@@ -1639,6 +1632,7 @@ interface SwipeableCardProps {
   isDarkTheme: boolean;
   primaryAccent: string;
   cardBorderColor: string;
+  snackbarVisible: boolean;
   onSwipe: (dir: SwipeDirection) => void;
   onLongPress: () => void;
 }
@@ -1649,6 +1643,7 @@ function SwipeableCard({
   isDarkTheme,
   primaryAccent,
   cardBorderColor,
+  snackbarVisible,
   onSwipe,
   onLongPress,
 }: SwipeableCardProps) {
@@ -1734,7 +1729,7 @@ function SwipeableCard({
       }}
       animate={{
         scale: isTop ? 1 : 0.95,
-        y: isTop ? 0 : 8,
+        y: isTop ? (snackbarVisible ? -32 : 0) : (snackbarVisible ? -24 : 8),
       }}
       transition={{ type: 'spring', damping: 25, stiffness: 200 }}
       className={`absolute w-[90%] aspect-[0.66] rounded-[24px] ${cardBg} border-2 ${cardBorderColor} p-6 flex flex-col justify-between shadow-2xl cursor-grab active:cursor-grabbing ${

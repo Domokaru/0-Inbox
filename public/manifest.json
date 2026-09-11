@@ -1,0 +1,17 @@
+{
+  "name": "0 Inbox",
+  "short_name": "0 Inbox",
+  "description": "Jetpack Compose swipeable triage client with Neon & Pastel themes, Credential Manager, and Gmail API integration.",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#0F0F13",
+  "theme_color": "#0F0F13",
+  "icons": [
+    {
+      "src": "/app-icon.svg",
+      "type": "image/svg+xml",
+      "sizes": "192x192 512x512",
+      "purpose": "any maskable"
+    }
+  ]
+}
