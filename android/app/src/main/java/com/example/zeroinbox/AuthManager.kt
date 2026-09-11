@@ -10,6 +10,7 @@ import androidx.credentials.CredentialManager
 import androidx.credentials.CustomCredential
 import androidx.credentials.GetCredentialRequest
 import androidx.credentials.GetCredentialResponse
+import com.google.android.gms.common.AccountPicker
 import com.google.android.libraries.identity.googleid.GetGoogleIdOption
 import com.google.android.libraries.identity.googleid.GoogleIdTokenCredential
 import com.google.api.client.googleapis.extensions.android.gms.auth.GoogleAccountCredential
@@ -51,15 +52,41 @@ class AuthManager(private val context: Context) {
     }
 
     /**
+     * Reads existing Google accounts configured on this Android device (if accessible).
+     */
+    fun getAvailableGoogleAccounts(): List<String> {
+        return try {
+            val accountManager = AccountManager.get(context)
+            val accounts = accountManager.getAccountsByType("com.google")
+            accounts.map { it.name }.filter { it.isNotBlank() }
+        } catch (e: Exception) {
+            emptyList()
+        }
+    }
+
+    /**
      * Creates an Intent to launch Android's native Google Account Chooser dialog.
      * This allows the user to select from all Google accounts installed on the device.
      */
     fun createAccountPickerIntent(): Intent {
-        val credential = GoogleAccountCredential.usingOAuth2(
-            context,
-            listOf(GmailScopes.GMAIL_MODIFY)
-        )
-        return credential.newChooseAccountIntent()
+        return try {
+            val options = AccountPicker.AccountChooserOptions.Builder()
+                .setAllowableAccountsTypes(listOf("com.google"))
+                .setAlwaysShowAccountPicker(true)
+                .build()
+            AccountPicker.newChooseAccountIntent(options)
+        } catch (e: Throwable) {
+            try {
+                val credential = GoogleAccountCredential.usingOAuth2(
+                    context,
+                    listOf(GmailScopes.GMAIL_MODIFY)
+                )
+                credential.newChooseAccountIntent()
+                    ?: AccountManager.newChooseAccountIntent(null, null, arrayOf("com.google"), null, null, null, null)
+            } catch (t: Throwable) {
+                AccountManager.newChooseAccountIntent(null, null, arrayOf("com.google"), null, null, null, null)
+            }
+        }
     }
 
     /**

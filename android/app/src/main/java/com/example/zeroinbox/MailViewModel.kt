@@ -4,6 +4,8 @@ import android.content.Intent
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
+import com.google.android.gms.auth.GooglePlayServicesAvailabilityException
+import com.google.android.gms.auth.UserRecoverableAuthException
 import com.google.api.client.googleapis.extensions.android.gms.auth.UserRecoverableAuthIOException
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -87,6 +89,25 @@ class MailViewModel(private val repository: GmailRepository) : ViewModel() {
         isInitialized = false
     }
 
+    fun clearError() {
+        _errorMessage.value = null
+    }
+
+    private fun findAuthRecoveryIntent(throwable: Throwable?): Intent? {
+        var current = throwable
+        var depth = 0
+        while (current != null && depth < 10) {
+            when (current) {
+                is UserRecoverableAuthIOException -> return current.intent
+                is UserRecoverableAuthException -> return current.intent
+                is GooglePlayServicesAvailabilityException -> return current.intent
+            }
+            current = current.cause
+            depth++
+        }
+        return null
+    }
+
     fun onAuthRecoverySuccess() {
         _errorMessage.value = null
         loadNextBatch()
@@ -102,11 +123,13 @@ class MailViewModel(private val repository: GmailRepository) : ViewModel() {
             _isRefreshingLabels.value = true
             try {
                 _labels.value = repository.fetchLabels()
-            } catch (e: UserRecoverableAuthIOException) {
-                _authRecoveryIntent.emit(e.intent)
-                _errorMessage.value = "Google permissions required to view labels."
             } catch (e: Exception) {
                 e.printStackTrace()
+                val recoveryIntent = findAuthRecoveryIntent(e)
+                if (recoveryIntent != null) {
+                    _authRecoveryIntent.emit(recoveryIntent)
+                    _errorMessage.value = "Google permissions required. Please grant access in the consent prompt."
+                }
             } finally {
                 _isRefreshingLabels.value = false
             }
@@ -129,12 +152,15 @@ class MailViewModel(private val repository: GmailRepository) : ViewModel() {
                 // In Compose Tinder stack, items at the end of the list are rendered on top
                 _emails.value = newEmails.reversed() + _emails.value
                 _hasMore.value = nextPageToken != null
-            } catch (e: UserRecoverableAuthIOException) {
-                _authRecoveryIntent.emit(e.intent)
-                _errorMessage.value = "Google permission required. Please grant access in the consent prompt."
             } catch (e: Exception) {
                 e.printStackTrace()
-                _errorMessage.value = e.localizedMessage ?: "Failed to connect to Gmail. Check network or account permissions."
+                val recoveryIntent = findAuthRecoveryIntent(e)
+                if (recoveryIntent != null) {
+                    _authRecoveryIntent.emit(recoveryIntent)
+                    _errorMessage.value = "Google permission required. Please grant access in the consent prompt."
+                } else {
+                    _errorMessage.value = e.localizedMessage ?: "Failed to connect to Gmail. Check network or account permissions."
+                }
             } finally {
                 _isLoading.value = false
             }
@@ -164,10 +190,12 @@ class MailViewModel(private val repository: GmailRepository) : ViewModel() {
                         repository.markRead(email.threadId)
                     }
                 }
-            } catch (e: UserRecoverableAuthIOException) {
-                _authRecoveryIntent.emit(e.intent)
             } catch (e: Exception) {
                 e.printStackTrace()
+                val recoveryIntent = findAuthRecoveryIntent(e)
+                if (recoveryIntent != null) {
+                    _authRecoveryIntent.emit(recoveryIntent)
+                }
             }
         }
     }
@@ -185,10 +213,12 @@ class MailViewModel(private val repository: GmailRepository) : ViewModel() {
         viewModelScope.launch {
             try {
                 repository.applyLabelAndArchive(email.threadId, label.id)
-            } catch (e: UserRecoverableAuthIOException) {
-                _authRecoveryIntent.emit(e.intent)
             } catch (e: Exception) {
                 e.printStackTrace()
+                val recoveryIntent = findAuthRecoveryIntent(e)
+                if (recoveryIntent != null) {
+                    _authRecoveryIntent.emit(recoveryIntent)
+                }
             }
         }
     }

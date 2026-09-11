@@ -31,6 +31,7 @@ class MainActivity : ComponentActivity() {
     ) { result ->
         if (result.resultCode == RESULT_OK && result.data != null) {
             val accountName = result.data?.getStringExtra(AccountManager.KEY_ACCOUNT_NAME)
+                ?: result.data?.getStringExtra("authAccount")
             if (!accountName.isNullOrBlank()) {
                 authManager.saveAccount(accountName)
                 viewModel.setAccount(accountName)
@@ -42,11 +43,9 @@ class MainActivity : ComponentActivity() {
     // Launcher for Google OAuth consent permission screen
     private val authRecoveryLauncher = registerForActivityResult(
         ActivityResultContracts.StartActivityForResult()
-    ) { result ->
-        if (result.resultCode == RESULT_OK) {
-            viewModel.onAuthRecoverySuccess()
-            Toast.makeText(this, "Permission granted!", Toast.LENGTH_SHORT).show()
-        }
+    ) { _ ->
+        // User responded to Google OAuth permissions prompt; refresh emails
+        viewModel.onAuthRecoverySuccess()
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -55,7 +54,11 @@ class MainActivity : ComponentActivity() {
         // Observe OAuth recovery intents from GmailRepository / MailViewModel
         lifecycleScope.launch {
             viewModel.authRecoveryIntent.collectLatest { intent ->
-                authRecoveryLauncher.launch(intent)
+                try {
+                    authRecoveryLauncher.launch(intent)
+                } catch (e: Exception) {
+                    e.printStackTrace()
+                }
             }
         }
 
@@ -67,6 +70,7 @@ class MainActivity : ComponentActivity() {
 
         setContent {
             var isDarkTheme by remember { mutableStateOf(true) }
+            val availableAccounts = remember { authManager.getAvailableGoogleAccounts() }
 
             ZeroInboxTheme(darkTheme = isDarkTheme) {
                 Surface(
@@ -76,6 +80,7 @@ class MainActivity : ComponentActivity() {
                     SwipeableMailStack(
                         viewModel = viewModel,
                         isDarkTheme = isDarkTheme,
+                        availableAccounts = availableAccounts,
                         onToggleTheme = { isDarkTheme = it },
                         onLaunchAccountPicker = {
                             try {

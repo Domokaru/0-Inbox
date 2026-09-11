@@ -13,8 +13,10 @@ import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AccountCircle
 import androidx.compose.material.icons.filled.Archive
@@ -56,6 +58,7 @@ import kotlin.math.abs
 fun SwipeableMailStack(
     viewModel: MailViewModel,
     isDarkTheme: Boolean = true,
+    availableAccounts: List<String> = emptyList(),
     onToggleTheme: (Boolean) -> Unit = {},
     onLaunchAccountPicker: () -> Unit = {},
     onManualAccountEntered: (String) -> Unit = {},
@@ -74,8 +77,15 @@ fun SwipeableMailStack(
     val snackbarHostState = remember { SnackbarHostState() }
     var activePopup by remember { mutableStateOf<PopupAction?>(null) }
     var showSettingsDialog by remember { mutableStateOf(false) }
+    var showAccountSelectionDialog by remember { mutableStateOf(currentAccount == null && !isDemoMode) }
     var showEmailInputDialog by remember { mutableStateOf(false) }
     var emailForLabelDialog by remember { mutableStateOf<EmailModel?>(null) }
+
+    LaunchedEffect(currentAccount, isDemoMode) {
+        if (currentAccount != null || isDemoMode) {
+            showAccountSelectionDialog = false
+        }
+    }
 
     // Theme-derived palette
     val backgroundColor = if (isDarkTheme) Color(0xFF0F0F13) else Color(0xFFFFFFFF)
@@ -196,7 +206,12 @@ fun SwipeableMailStack(
                         },
                         contentPadding = PaddingValues(horizontal = 6.dp, vertical = 2.dp)
                     ) {
-                        Text("RETRY", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = Color(0xFFEF4444))
+                        Text(
+                            text = if (error.contains("permission", ignoreCase = true)) "GRANT ACCESS" else "RETRY",
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = Color(0xFFEF4444)
+                        )
                     }
                 }
             }
@@ -266,7 +281,7 @@ fun SwipeableMailStack(
                     }
                     Spacer(modifier = Modifier.height(10.dp))
                     OutlinedButton(
-                        onClick = { showEmailInputDialog = true },
+                        onClick = { showAccountSelectionDialog = true },
                         modifier = Modifier.fillMaxWidth().height(46.dp),
                         shape = RoundedCornerShape(12.dp),
                         border = BorderStroke(1.5.dp, secondaryAccent)
@@ -274,7 +289,7 @@ fun SwipeableMailStack(
                         Icon(Icons.Default.Edit, contentDescription = null, tint = secondaryAccent, modifier = Modifier.size(16.dp))
                         Spacer(modifier = Modifier.width(8.dp))
                         Text(
-                            text = "ENTER GMAIL ADDRESS",
+                            text = "CHOOSE OR ENTER EMAIL",
                             color = secondaryAccent,
                             fontWeight = FontWeight.Bold,
                             fontSize = 12.sp
@@ -296,81 +311,188 @@ fun SwipeableMailStack(
             }
         }
 
-        // Empty state when all emails are triaged: Big pixelated 0 in center
-        if (emails.isEmpty() && !isLoading) {
-            Column(
-                modifier = Modifier
-                    .align(Alignment.Center)
-                    .padding(horizontal = 24.dp),
-                horizontalAlignment = Alignment.CenterHorizontally
-            ) {
-                BigPixelZero(
-                    color = primaryAccent,
-                    pixelSizeDp = 16f
-                )
-                Spacer(modifier = Modifier.height(18.dp))
-                Text(
-                    text = "0 INBOX ACHIEVED!",
-                    color = secondaryAccent,
-                    fontSize = 18.sp,
-                    fontWeight = FontWeight.Black,
-                    letterSpacing = 2.sp
-                )
-                Spacer(modifier = Modifier.height(6.dp))
-                Text(
-                    text = "All emails triaged • 0 unread",
-                    color = if (isDarkTheme) Color(0xFFAAAAAA) else Color(0xFF64748B),
-                    fontSize = 12.sp
+        // Only display triage stack, info card, and bottom action bar when an account is connected or in demo mode
+        if (currentAccount != null || isDemoMode) {
+            // Empty state when all emails are triaged: Big pixelated 0 in center
+            if (emails.isEmpty() && !isLoading) {
+                Column(
+                    modifier = Modifier
+                        .align(Alignment.Center)
+                        .padding(horizontal = 24.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally
+                ) {
+                    BigPixelZero(
+                        color = primaryAccent,
+                        pixelSizeDp = 16f
+                    )
+                    Spacer(modifier = Modifier.height(18.dp))
+                    Text(
+                        text = "0 INBOX ACHIEVED!",
+                        color = secondaryAccent,
+                        fontSize = 18.sp,
+                        fontWeight = FontWeight.Black,
+                        letterSpacing = 2.sp
+                    )
+                    Spacer(modifier = Modifier.height(6.dp))
+                    Text(
+                        text = "All emails triaged • 0 unread",
+                        color = if (isDarkTheme) Color(0xFFAAAAAA) else Color(0xFF64748B),
+                        fontSize = 12.sp
+                    )
+                }
+            }
+
+            // Informational card at the bottom of the stack
+            if (hasMore) {
+                InfoCard(
+                    isDarkTheme = isDarkTheme,
+                    borderColor = tertiaryAccent,
+                    onClick = { viewModel.loadNextBatch() }
                 )
             }
-        }
 
-        // Informational card at the bottom of the stack
-        if (hasMore) {
-            InfoCard(
-                isDarkTheme = isDarkTheme,
-                borderColor = tertiaryAccent,
-                onClick = { viewModel.loadNextBatch() }
-            )
-        }
+            // Active Email Tinder Cards
+            emails.forEachIndexed { index, email ->
+                val isTopCard = index == emails.lastIndex
+                EmailCard(
+                    email = email,
+                    isTopCard = isTopCard,
+                    isDarkTheme = isDarkTheme,
+                    cardSurface = cardSurface,
+                    borderColor = secondaryAccent,
+                    senderColor = primaryAccent,
+                    onSwiped = { direction ->
+                        showPopupAndClear(direction, isDarkTheme, coroutineScope) { activePopup = it }
+                        viewModel.processEmailSwipe(email, direction)
 
-        // Active Email Tinder Cards
-        emails.forEachIndexed { index, email ->
-            val isTopCard = index == emails.lastIndex
-            EmailCard(
-                email = email,
-                isTopCard = isTopCard,
-                isDarkTheme = isDarkTheme,
-                cardSurface = cardSurface,
-                borderColor = secondaryAccent,
-                senderColor = primaryAccent,
-                onSwiped = { direction ->
-                    showPopupAndClear(direction, isDarkTheme, coroutineScope) { activePopup = it }
-                    viewModel.processEmailSwipe(email, direction)
-
-                    val actionLabel = when (direction) {
-                        SwipeDirection.RIGHT -> "Archived"
-                        SwipeDirection.LEFT -> "Deleted"
-                        SwipeDirection.UP -> "Marked 'Needs Response'"
-                        SwipeDirection.DOWN -> "Marked as read"
-                    }
-
-                    coroutineScope.launch {
-                        snackbarHostState.currentSnackbarData?.dismiss()
-                        val result = snackbarHostState.showSnackbar(
-                            message = "$actionLabel email from ${email.sender}",
-                            actionLabel = "UNDO",
-                            duration = SnackbarDuration.Short
-                        )
-                        if (result == SnackbarResult.ActionPerformed) {
-                            viewModel.undoLastAction()
+                        val actionLabel = when (direction) {
+                            SwipeDirection.RIGHT -> "Archived"
+                            SwipeDirection.LEFT -> "Deleted"
+                            SwipeDirection.UP -> "Marked 'Needs Response'"
+                            SwipeDirection.DOWN -> "Marked as read"
                         }
+
+                        coroutineScope.launch {
+                            snackbarHostState.currentSnackbarData?.dismiss()
+                            val result = snackbarHostState.showSnackbar(
+                                message = "$actionLabel email from ${email.sender}",
+                                actionLabel = "UNDO",
+                                duration = SnackbarDuration.Short
+                            )
+                            if (result == SnackbarResult.ActionPerformed) {
+                                viewModel.undoLastAction()
+                            }
+                        }
+                    },
+                    onLongPress = {
+                        emailForLabelDialog = email
                     }
-                },
-                onLongPress = {
-                    emailForLabelDialog = email
-                }
+                )
+            }
+
+            // Small text indicating unread emails in inbox: under cards, above bottom icons
+            Text(
+                text = if (emails.isEmpty()) "0 emails unread in inbox" else "${emails.size} emails unread in inbox",
+                fontSize = 12.sp,
+                fontWeight = FontWeight.Medium,
+                color = if (emails.isEmpty()) primaryAccent else (if (isDarkTheme) Color(0xFFAAAAAA) else Color(0xFF64748B)),
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .padding(bottom = 128.dp)
             )
+
+            // Bottom Action Bar: 5 quick-action buttons including Custom Label (No Swipe required)
+            Row(
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .padding(bottom = 76.dp)
+                    .fillMaxWidth(0.92f),
+                horizontalArrangement = Arrangement.SpaceEvenly,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                // 1. Delete (Left)
+                IconButton(
+                    onClick = {
+                        if (emails.isNotEmpty()) {
+                            val email = emails.last()
+                            showPopupAndClear(SwipeDirection.LEFT, isDarkTheme, coroutineScope) { activePopup = it }
+                            viewModel.processEmailSwipe(email, SwipeDirection.LEFT)
+                        }
+                    },
+                    modifier = Modifier
+                        .size(42.dp)
+                        .background(if (isDarkTheme) Color(0x22FF3366) else Color(0x15EF4444), CircleShape)
+                        .border(1.dp, if (isDarkTheme) Color(0x66FF3366) else Color(0x44EF4444), CircleShape)
+                ) {
+                    Icon(Icons.Default.Delete, contentDescription = "Delete", tint = if (isDarkTheme) Color(0xFFFF3366) else Color(0xFFEF4444))
+                }
+
+                // 2. Needs Update (Up)
+                IconButton(
+                    onClick = {
+                        if (emails.isNotEmpty()) {
+                            val email = emails.last()
+                            showPopupAndClear(SwipeDirection.UP, isDarkTheme, coroutineScope) { activePopup = it }
+                            viewModel.processEmailSwipe(email, SwipeDirection.UP)
+                        }
+                    },
+                    modifier = Modifier
+                        .size(42.dp)
+                        .background(if (isDarkTheme) Color(0x22FF00FF) else Color(0x15EC4899), CircleShape)
+                        .border(1.dp, if (isDarkTheme) Color(0x66FF00FF) else Color(0x44EC4899), CircleShape)
+                ) {
+                    Icon(Icons.Default.Edit, contentDescription = "Needs Update", tint = secondaryAccent)
+                }
+
+                // 3. Assign Custom Label (NO SWIPE ACTIVITY - Long press or tap button opens Gmail labels dialog)
+                IconButton(
+                    onClick = {
+                        if (emails.isNotEmpty()) {
+                            emailForLabelDialog = emails.last()
+                        }
+                    },
+                    modifier = Modifier
+                        .size(48.dp)
+                        .background(if (isDarkTheme) Color(0x3300FFFF) else Color(0x220EA5E9), CircleShape)
+                        .border(2.dp, primaryAccent, CircleShape)
+                ) {
+                    Icon(Icons.Default.DriveFileMove, contentDescription = "Assign Gmail Label", tint = primaryAccent)
+                }
+
+                // 4. Mark Read (Down)
+                IconButton(
+                    onClick = {
+                        if (emails.isNotEmpty()) {
+                            val email = emails.last()
+                            showPopupAndClear(SwipeDirection.DOWN, isDarkTheme, coroutineScope) { activePopup = it }
+                            viewModel.processEmailSwipe(email, SwipeDirection.DOWN)
+                        }
+                    },
+                    modifier = Modifier
+                        .size(42.dp)
+                        .background(if (isDarkTheme) Color(0x22007BFF) else Color(0x153B82F6), CircleShape)
+                        .border(1.dp, if (isDarkTheme) Color(0x66007BFF) else Color(0x443B82F6), CircleShape)
+                ) {
+                    Icon(Icons.Default.Drafts, contentDescription = "Mark Read", tint = tertiaryAccent)
+                }
+
+                // 5. Archive (Right)
+                IconButton(
+                    onClick = {
+                        if (emails.isNotEmpty()) {
+                            val email = emails.last()
+                            showPopupAndClear(SwipeDirection.RIGHT, isDarkTheme, coroutineScope) { activePopup = it }
+                            viewModel.processEmailSwipe(email, SwipeDirection.RIGHT)
+                        }
+                    },
+                    modifier = Modifier
+                        .size(42.dp)
+                        .background(if (isDarkTheme) Color(0x2200FFFF) else Color(0x150EA5E9), CircleShape)
+                        .border(1.dp, primaryAccent.copy(alpha = 0.4f), CircleShape)
+                ) {
+                    Icon(Icons.Default.Archive, contentDescription = "Archive", tint = primaryAccent)
+                }
+            }
         }
 
         if (isLoading) {
@@ -385,110 +507,6 @@ fun SwipeableMailStack(
         // Screen-centered Popup: ONLY the Neon/Pastel Icon, NO words or subtitles!
         activePopup?.let { popup ->
             NeonIconOnlyPopup(popup = popup)
-        }
-
-        // Small text indicating unread emails in inbox: under cards, above bottom icons
-        Text(
-            text = if (emails.isEmpty()) "0 emails unread in inbox" else "${emails.size} emails unread in inbox",
-            fontSize = 12.sp,
-            fontWeight = FontWeight.Medium,
-            color = if (emails.isEmpty()) primaryAccent else (if (isDarkTheme) Color(0xFFAAAAAA) else Color(0xFF64748B)),
-            modifier = Modifier
-                .align(Alignment.BottomCenter)
-                .padding(bottom = 128.dp)
-        )
-
-        // Bottom Action Bar: 5 quick-action buttons including Custom Label (No Swipe required)
-        Row(
-            modifier = Modifier
-                .align(Alignment.BottomCenter)
-                .padding(bottom = 76.dp)
-                .fillMaxWidth(0.92f),
-            horizontalArrangement = Arrangement.SpaceEvenly,
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            // 1. Delete (Left)
-            IconButton(
-                onClick = {
-                    if (emails.isNotEmpty()) {
-                        val email = emails.last()
-                        showPopupAndClear(SwipeDirection.LEFT, isDarkTheme, coroutineScope) { activePopup = it }
-                        viewModel.processEmailSwipe(email, SwipeDirection.LEFT)
-                    }
-                },
-                modifier = Modifier
-                    .size(42.dp)
-                    .background(if (isDarkTheme) Color(0x22FF3366) else Color(0x15EF4444), CircleShape)
-                    .border(1.dp, if (isDarkTheme) Color(0x66FF3366) else Color(0x44EF4444), CircleShape)
-            ) {
-                Icon(Icons.Default.Delete, contentDescription = "Delete", tint = if (isDarkTheme) Color(0xFFFF3366) else Color(0xFFEF4444))
-            }
-
-            // 2. Needs Update (Up)
-            IconButton(
-                onClick = {
-                    if (emails.isNotEmpty()) {
-                        val email = emails.last()
-                        showPopupAndClear(SwipeDirection.UP, isDarkTheme, coroutineScope) { activePopup = it }
-                        viewModel.processEmailSwipe(email, SwipeDirection.UP)
-                    }
-                },
-                modifier = Modifier
-                    .size(42.dp)
-                    .background(if (isDarkTheme) Color(0x22FF00FF) else Color(0x15EC4899), CircleShape)
-                    .border(1.dp, if (isDarkTheme) Color(0x66FF00FF) else Color(0x44EC4899), CircleShape)
-            ) {
-                Icon(Icons.Default.Edit, contentDescription = "Needs Update", tint = secondaryAccent)
-            }
-
-            // 3. Assign Custom Label (NO SWIPE ACTIVITY - Long press or tap button opens Gmail labels dialog)
-            IconButton(
-                onClick = {
-                    if (emails.isNotEmpty()) {
-                        emailForLabelDialog = emails.last()
-                    }
-                },
-                modifier = Modifier
-                    .size(48.dp)
-                    .background(if (isDarkTheme) Color(0x3300FFFF) else Color(0x220EA5E9), CircleShape)
-                    .border(2.dp, primaryAccent, CircleShape)
-            ) {
-                Icon(Icons.Default.DriveFileMove, contentDescription = "Assign Gmail Label", tint = primaryAccent)
-            }
-
-            // 4. Mark Read (Down)
-            IconButton(
-                onClick = {
-                    if (emails.isNotEmpty()) {
-                        val email = emails.last()
-                        showPopupAndClear(SwipeDirection.DOWN, isDarkTheme, coroutineScope) { activePopup = it }
-                        viewModel.processEmailSwipe(email, SwipeDirection.DOWN)
-                    }
-                },
-                modifier = Modifier
-                    .size(42.dp)
-                    .background(if (isDarkTheme) Color(0x22007BFF) else Color(0x153B82F6), CircleShape)
-                    .border(1.dp, if (isDarkTheme) Color(0x66007BFF) else Color(0x443B82F6), CircleShape)
-            ) {
-                Icon(Icons.Default.Drafts, contentDescription = "Mark Read", tint = tertiaryAccent)
-            }
-
-            // 5. Archive (Right)
-            IconButton(
-                onClick = {
-                    if (emails.isNotEmpty()) {
-                        val email = emails.last()
-                        showPopupAndClear(SwipeDirection.RIGHT, isDarkTheme, coroutineScope) { activePopup = it }
-                        viewModel.processEmailSwipe(email, SwipeDirection.RIGHT)
-                    }
-                },
-                modifier = Modifier
-                    .size(42.dp)
-                    .background(if (isDarkTheme) Color(0x2200FFFF) else Color(0x150EA5E9), CircleShape)
-                    .border(1.dp, primaryAccent.copy(alpha = 0.4f), CircleShape)
-            ) {
-                Icon(Icons.Default.Archive, contentDescription = "Archive", tint = primaryAccent)
-            }
         }
 
         // Material 3 Neon / Pastel Snackbar with Undo Button
@@ -510,6 +528,29 @@ fun SwipeableMailStack(
                     tertiaryAccent,
                     RoundedCornerShape(16.dp)
                 )
+            )
+        }
+
+        // Account Selection & Setup Dialog
+        if (showAccountSelectionDialog) {
+            AccountSelectionDialog(
+                isDarkTheme = isDarkTheme,
+                primaryAccent = primaryAccent,
+                secondaryAccent = secondaryAccent,
+                availableAccounts = availableAccounts,
+                onSelectAccount = { email ->
+                    showAccountSelectionDialog = false
+                    onManualAccountEntered(email)
+                },
+                onLaunchPicker = {
+                    showAccountSelectionDialog = false
+                    onLaunchAccountPicker()
+                },
+                onEnableDemoMode = {
+                    showAccountSelectionDialog = false
+                    viewModel.enableDemoMode()
+                },
+                onDismiss = { showAccountSelectionDialog = false }
             )
         }
 
@@ -550,11 +591,31 @@ fun SwipeableMailStack(
             )
         }
 
-        // Settings Dialog (triggered by double tapping "0 INBOX")
+        // Settings Dialog (triggered by tapping "0 INBOX" header or Account chip)
         if (showSettingsDialog) {
             SettingsDialog(
+                currentAccount = currentAccount,
+                isDemoMode = isDemoMode,
                 isDarkTheme = isDarkTheme,
+                primaryAccent = primaryAccent,
+                secondaryAccent = secondaryAccent,
                 onToggleTheme = onToggleTheme,
+                onSwitchAccount = {
+                    showSettingsDialog = false
+                    showAccountSelectionDialog = true
+                },
+                onEnterEmailManually = {
+                    showSettingsDialog = false
+                    showAccountSelectionDialog = true
+                },
+                onEnableDemoMode = {
+                    showSettingsDialog = false
+                    viewModel.enableDemoMode()
+                },
+                onSignOut = {
+                    showSettingsDialog = false
+                    onSignOut()
+                },
                 onDismiss = { showSettingsDialog = false }
             )
         }
@@ -776,21 +837,101 @@ private fun showPopupAndClear(
 
 @Composable
 fun SettingsDialog(
+    currentAccount: String?,
+    isDemoMode: Boolean,
     isDarkTheme: Boolean,
+    primaryAccent: Color,
+    secondaryAccent: Color,
     onToggleTheme: (Boolean) -> Unit,
+    onSwitchAccount: () -> Unit,
+    onEnterEmailManually: () -> Unit,
+    onEnableDemoMode: () -> Unit,
+    onSignOut: () -> Unit,
     onDismiss: () -> Unit
 ) {
     AlertDialog(
         onDismissRequest = onDismiss,
         title = {
             Text(
-                text = "Settings",
+                text = "Settings & Accounts",
                 fontWeight = FontWeight.Bold,
                 fontSize = 20.sp
             )
         },
         text = {
             Column(modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp)) {
+                // Current Account Status
+                Text(
+                    text = "CURRENT ACCOUNT",
+                    fontSize = 11.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    letterSpacing = 1.sp
+                )
+                Spacer(modifier = Modifier.height(4.dp))
+                Text(
+                    text = when {
+                        isDemoMode -> "Demo Mode (Sample Inbox)"
+                        currentAccount != null -> currentAccount
+                        else -> "No Account Connected"
+                    },
+                    fontSize = 14.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    color = primaryAccent
+                )
+
+                Spacer(modifier = Modifier.height(16.dp))
+
+                // Account Actions
+                Button(
+                    onClick = onSwitchAccount,
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(10.dp),
+                    colors = ButtonDefaults.buttonColors(containerColor = primaryAccent)
+                ) {
+                    Icon(Icons.Default.AccountCircle, contentDescription = null, tint = Color.Black, modifier = Modifier.size(16.dp))
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text("Switch Google Account", color = Color.Black, fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                }
+
+                Spacer(modifier = Modifier.height(8.dp))
+
+                OutlinedButton(
+                    onClick = onEnterEmailManually,
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(10.dp),
+                    border = BorderStroke(1.dp, secondaryAccent)
+                ) {
+                    Icon(Icons.Default.Edit, contentDescription = null, tint = secondaryAccent, modifier = Modifier.size(14.dp))
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text("Enter Email Address", color = secondaryAccent, fontWeight = FontWeight.SemiBold, fontSize = 12.sp)
+                }
+
+                Spacer(modifier = Modifier.height(8.dp))
+
+                OutlinedButton(
+                    onClick = onEnableDemoMode,
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(10.dp)
+                ) {
+                    Text("Try Demo Mode", fontWeight = FontWeight.SemiBold, fontSize = 12.sp)
+                }
+
+                if (currentAccount != null || isDemoMode) {
+                    Spacer(modifier = Modifier.height(8.dp))
+                    TextButton(
+                        onClick = onSignOut,
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Icon(Icons.Default.ExitToApp, contentDescription = null, tint = Color(0xFFEF4444), modifier = Modifier.size(16.dp))
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text("Disconnect / Sign Out", color = Color(0xFFEF4444), fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(16.dp))
+
+                // Dark / Light Theme Toggle
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.SpaceBetween,
@@ -800,10 +941,10 @@ fun SettingsDialog(
                         Text(
                             text = "Dark Theme",
                             fontWeight = FontWeight.SemiBold,
-                            fontSize = 16.sp
+                            fontSize = 15.sp
                         )
                         Text(
-                            text = if (isDarkTheme) "Neon Palette on Dark Canvas" else "Pastel Palette on White Canvas",
+                            text = if (isDarkTheme) "Neon on Dark" else "Pastel on Light",
                             fontSize = 12.sp,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
@@ -818,6 +959,188 @@ fun SettingsDialog(
         confirmButton = {
             TextButton(onClick = onDismiss) {
                 Text("DONE", fontWeight = FontWeight.Bold)
+            }
+        }
+    )
+}
+
+@Composable
+fun AccountSelectionDialog(
+    isDarkTheme: Boolean,
+    primaryAccent: Color,
+    secondaryAccent: Color,
+    availableAccounts: List<String>,
+    onSelectAccount: (String) -> Unit,
+    onLaunchPicker: () -> Unit,
+    onEnableDemoMode: () -> Unit,
+    onDismiss: () -> Unit
+) {
+    var emailText by remember { mutableStateOf("") }
+    var isError by remember { mutableStateOf(false) }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(
+                    imageVector = Icons.Default.AccountCircle,
+                    contentDescription = null,
+                    tint = primaryAccent,
+                    modifier = Modifier.size(24.dp)
+                )
+                Spacer(modifier = Modifier.width(8.dp))
+                Text(
+                    text = "Select Gmail Account",
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 18.sp
+                )
+            }
+        },
+        text = {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .verticalScroll(rememberScrollState())
+                    .padding(vertical = 4.dp)
+            ) {
+                Text(
+                    text = "Choose or enter the Google account to triage with 0 Inbox:",
+                    fontSize = 13.sp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+
+                if (availableAccounts.isNotEmpty()) {
+                    Spacer(modifier = Modifier.height(14.dp))
+                    Text(
+                        text = "ACCOUNTS ON THIS DEVICE",
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = primaryAccent,
+                        letterSpacing = 1.sp
+                    )
+                    Spacer(modifier = Modifier.height(6.dp))
+                    availableAccounts.forEach { acc ->
+                        Surface(
+                            onClick = { onSelectAccount(acc) },
+                            shape = RoundedCornerShape(10.dp),
+                            color = if (isDarkTheme) Color(0xFF1E1E28) else Color(0xFFF1F5F9),
+                            border = BorderStroke(1.dp, primaryAccent.copy(alpha = 0.5f)),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(vertical = 3.dp)
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Icon(
+                                    Icons.Default.Email,
+                                    contentDescription = null,
+                                    tint = primaryAccent,
+                                    modifier = Modifier.size(18.dp)
+                                )
+                                Spacer(modifier = Modifier.width(10.dp))
+                                Text(
+                                    text = acc,
+                                    fontSize = 13.sp,
+                                    fontWeight = FontWeight.Medium,
+                                    modifier = Modifier.weight(1f)
+                                )
+                                Icon(
+                                    Icons.Default.Check,
+                                    contentDescription = null,
+                                    tint = primaryAccent,
+                                    modifier = Modifier.size(16.dp)
+                                )
+                            }
+                        }
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(14.dp))
+
+                Button(
+                    onClick = onLaunchPicker,
+                    modifier = Modifier.fillMaxWidth().height(46.dp),
+                    shape = RoundedCornerShape(10.dp),
+                    colors = ButtonDefaults.buttonColors(containerColor = primaryAccent)
+                ) {
+                    Icon(Icons.Default.AccountCircle, contentDescription = null, tint = Color.Black, modifier = Modifier.size(18.dp))
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text("CHOOSE VIA GOOGLE PICKER", color = Color.Black, fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                }
+
+                Spacer(modifier = Modifier.height(14.dp))
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Box(modifier = Modifier.weight(1f).height(1.dp).background(Color.Gray.copy(alpha = 0.3f)))
+                    Text(
+                        text = "  OR ENTER EMAIL  ",
+                        fontSize = 10.sp,
+                        color = Color.Gray,
+                        fontWeight = FontWeight.Bold
+                    )
+                    Box(modifier = Modifier.weight(1f).height(1.dp).background(Color.Gray.copy(alpha = 0.3f)))
+                }
+
+                Spacer(modifier = Modifier.height(10.dp))
+
+                OutlinedTextField(
+                    value = emailText,
+                    onValueChange = {
+                        emailText = it
+                        isError = false
+                    },
+                    label = { Text("Gmail Address") },
+                    placeholder = { Text("you@gmail.com") },
+                    singleLine = true,
+                    isError = isError,
+                    modifier = Modifier.fillMaxWidth()
+                )
+                if (isError) {
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Text(
+                        text = "Please enter a valid Gmail address.",
+                        color = MaterialTheme.colorScheme.error,
+                        fontSize = 11.sp
+                    )
+                }
+
+                Spacer(modifier = Modifier.height(10.dp))
+
+                Button(
+                    onClick = {
+                        val trimmed = emailText.trim()
+                        if (trimmed.isNotEmpty() && trimmed.contains("@")) {
+                            onSelectAccount(trimmed)
+                        } else {
+                            isError = true
+                        }
+                    },
+                    modifier = Modifier.fillMaxWidth().height(42.dp),
+                    shape = RoundedCornerShape(10.dp),
+                    colors = ButtonDefaults.buttonColors(containerColor = secondaryAccent)
+                ) {
+                    Text("CONNECT THIS EMAIL", color = Color.Black, fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                }
+
+                Spacer(modifier = Modifier.height(10.dp))
+
+                TextButton(
+                    onClick = onEnableDemoMode,
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text("Try Demo Mode (Sample Inbox)", fontSize = 12.sp)
+                }
+            }
+        },
+        confirmButton = {},
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text("CLOSE")
             }
         }
     )

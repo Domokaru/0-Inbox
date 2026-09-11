@@ -52,32 +52,37 @@ class GmailRepository(private val context: Context) {
     suspend fun fetchEmails(pageToken: String? = null): Pair<List<EmailModel>, String?> = withContext(Dispatchers.IO) {
         val service = gmailService ?: throw IllegalStateException("Gmail service not initialized. Please connect your Gmail account.")
 
-        // Requirements: Primary, Promotions, Social, Updates, newer than 2 days.
-        val query = "category:primary OR category:promotions OR category:social OR category:updates newer_than:2d"
-
+        // Primary inbox query: retrieves all messages currently residing in the user's INBOX
         val listResponse = service.users().messages().list("me")
-            .setQ(query)
+            .setLabelIds(listOf("INBOX"))
             .setMaxResults(20L)
             .setPageToken(pageToken)
             .execute()
 
         val messages = listResponse.messages ?: emptyList()
         val emailModels = messages.mapNotNull { msgMeta ->
-            // Fetch the full message to get headers and snippet
-            val msg = service.users().messages().get("me", msgMeta.id).setFormat("metadata").execute()
+            try {
+                // Fetch the message metadata to get headers and snippet
+                val msg = service.users().messages().get("me", msgMeta.id)
+                    .setFormat("metadata")
+                    .setMetadataHeaders(listOf("Subject", "From", "Date"))
+                    .execute()
 
-            val headers = msg.payload?.headers
-            val subject = headers?.find { it.name.equals("Subject", ignoreCase = true) }?.value ?: "No Subject"
-            val sender = headers?.find { it.name.equals("From", ignoreCase = true) }?.value ?: "Unknown Sender"
+                val headers = msg.payload?.headers
+                val subject = headers?.find { it.name.equals("Subject", ignoreCase = true) }?.value ?: "(No Subject)"
+                val sender = headers?.find { it.name.equals("From", ignoreCase = true) }?.value ?: "Unknown Sender"
 
-            EmailModel(
-                id = msg.id,
-                threadId = msg.threadId,
-                sender = sender,
-                subject = subject,
-                snippet = msg.snippet ?: "",
-                isDemo = false
-            )
+                EmailModel(
+                    id = msg.id,
+                    threadId = msg.threadId,
+                    sender = sender,
+                    subject = subject,
+                    snippet = msg.snippet ?: "",
+                    isDemo = false
+                )
+            } catch (e: Exception) {
+                null
+            }
         }
 
         Pair(emailModels, listResponse.nextPageToken)
@@ -148,7 +153,7 @@ class GmailRepository(private val context: Context) {
                     labelListVisibility = "labelShow"
                     messageListVisibility = "show"
                 }).execute()
-            needsResponseLabelId = targetLabel.id
+            needsResponseLabelId = targetLabel?.id
         }
 
         val labelId = needsResponseLabelId ?: return@withContext
