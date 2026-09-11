@@ -136,25 +136,21 @@ class GmailRepository(private val context: Context) {
         
         if (needsResponseLabelId == null) {
             val labels = service.users().labels().list("me").execute().labels
-            var targetLabel = labels?.find { it.name == "Needs Response" }
-            
-            if (targetLabel == null) {
-                // Create it if it doesn't exist
-                val newLabel = Label().apply {
+            val targetLabel = labels?.find { it.name == "Needs Response" }
+                ?: service.users().labels().create("me", Label().apply {
                     name = "Needs Response"
                     labelListVisibility = "labelShow"
                     messageListVisibility = "show"
-                }
-                targetLabel = service.users().labels().create("me", newLabel).execute()
-            }
+                }).execute()
             needsResponseLabelId = targetLabel.id
         }
 
+        val labelId = needsResponseLabelId ?: return@withContext
         service.users().threads().modify(
             "me", 
             threadId, 
             ModifyThreadRequest()
-                .setAddLabelIds(listOf(needsResponseLabelId!!))
+                .setAddLabelIds(listOf(labelId))
                 .setRemoveLabelIds(listOf("UNREAD")) // Ensure it acts like it was triaged
         ).execute()
     }
