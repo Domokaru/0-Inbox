@@ -1,6 +1,6 @@
 package com.example.zeroinbox
 
-import android.accounts.AccountManager
+import android.content.Intent
 import android.os.Bundle
 import android.widget.Toast
 import androidx.activity.ComponentActivity
@@ -15,56 +15,66 @@ import androidx.compose.ui.Modifier
 import androidx.lifecycle.lifecycleScope
 import com.example.zeroinbox.ui.SwipeableMailStack
 import com.example.zeroinbox.ui.theme.ZeroInboxTheme
-import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
+import net.openid.appauth.AuthorizationException
+import net.openid.appauth.AuthorizationResponse
 
 class MainActivity : ComponentActivity() {
 
     private val authManager by lazy { AuthManager(this) }
     private val viewModel: MailViewModel by viewModels(
-        factoryProducer = { MailViewModelFactory(GmailRepository(this)) }
+        factoryProducer = { MailViewModelFactory(GmailRepository(this, authManager)) }
     )
 
-    // Launcher for system Google Account Chooser
-    private val accountPickerLauncher = registerForActivityResult(
+    // Launcher for Google Web OAuth via AppAuth (Chrome Custom Tabs / Web Browser)
+    private val authLauncher = registerForActivityResult(
         ActivityResultContracts.StartActivityForResult()
     ) { result ->
-        if (result.resultCode == android.app.Activity.RESULT_OK && result.data != null) {
-            val accountName = result.data?.getStringExtra(AccountManager.KEY_ACCOUNT_NAME)
-                ?: result.data?.getStringExtra("authAccount")
-            if (!accountName.isNullOrBlank()) {
-                authManager.saveAccount(accountName)
-                viewModel.setAccount(accountName)
-                Toast.makeText(this, "Connected: $accountName", Toast.LENGTH_SHORT).show()
+        val intent = result.data
+        if (intent != null) {
+            handleAuthIntent(intent)
+        }
+    }
+
+    /**
+     * Processes authorization redirect callback intents and exchanges auth code for tokens.
+     */
+    private fun handleAuthIntent(intent: Intent) {
+        val response = AuthorizationResponse.fromIntent(intent)
+        val exception = AuthorizationException.fromIntent(intent)
+
+        if (response != null || exception != null) {
+            lifecycleScope.launch {
+                val (success, resultMsg) = authManager.handleAuthorizationResponse(response, exception)
+                if (success && resultMsg != null) {
+                    viewModel.setAccount(resultMsg)
+                    Toast.makeText(this@MainActivity, "Connected: $resultMsg", Toast.LENGTH_SHORT).show()
+                } else {
+                    Toast.makeText(
+                        this@MainActivity,
+                        resultMsg ?: "Google sign in was not completed.",
+                        Toast.LENGTH_LONG
+                    ).show()
+                }
             }
         }
     }
 
-    // Launcher for Google OAuth consent permission screen
-    private val authRecoveryLauncher = registerForActivityResult(
-        ActivityResultContracts.StartActivityForResult()
-    ) { _ ->
-        // User responded to Google OAuth permissions prompt; refresh emails
-        viewModel.onAuthRecoverySuccess()
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        handleAuthIntent(intent)
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
-        // Observe OAuth recovery intents from GmailRepository / MailViewModel
-        lifecycleScope.launch {
-            viewModel.authRecoveryIntent.collectLatest { intent ->
-                try {
-                    authRecoveryLauncher.launch(intent)
-                } catch (e: Exception) {
-                    e.printStackTrace()
-                }
-            }
-        }
+        // Process any authorization redirect intent if launched directly
+        intent?.let { handleAuthIntent(it) }
 
-        // Check if there is already a saved account from previous session
-        val savedAccount = authManager.getSavedAccount()
-        if (savedAccount != null) {
+        // Check if there is already a saved account / authorized state from previous session
+        if (authManager.isAuthorized()) {
+            val savedAccount = authManager.getSavedAccount() ?: "Connected Gmail Account"
             viewModel.initializeWithSavedAccount(savedAccount)
         }
 
@@ -83,12 +93,13 @@ class MainActivity : ComponentActivity() {
                         onToggleTheme = { isDarkTheme = it },
                         onLaunchAccountPicker = {
                             try {
-                                accountPickerLauncher.launch(authManager.createAccountPickerIntent())
+                                val authIntent = authManager.createAuthIntent()
+                                authLauncher.launch(authIntent)
                             } catch (e: Exception) {
                                 e.printStackTrace()
                                 Toast.makeText(
                                     this,
-                                    "Could not open Google Account Chooser: ${e.message}",
+                                    "Could not open browser for sign in: ${e.message}",
                                     Toast.LENGTH_LONG
                                 ).show()
                             }
@@ -102,5 +113,9 @@ class MainActivity : ComponentActivity() {
             }
         }
     }
-}
 
+    override fun onDestroy() {
+        super.onDestroy()
+        authManager.dispose()
+    }
+}

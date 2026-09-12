@@ -1,12 +1,10 @@
 package com.example.zeroinbox
 
 import android.content.Context
-import com.google.api.client.googleapis.extensions.android.gms.auth.GoogleAccountCredential
-import com.google.api.client.googleapis.extensions.android.gms.auth.UserRecoverableAuthIOException
 import com.google.api.client.googleapis.javanet.GoogleNetHttpTransport
+import com.google.api.client.http.HttpRequestInitializer
 import com.google.api.client.json.gson.GsonFactory
 import com.google.api.services.gmail.Gmail
-import com.google.api.services.gmail.GmailScopes
 import com.google.api.services.gmail.model.Label
 import com.google.api.services.gmail.model.ModifyThreadRequest
 import kotlinx.coroutines.Dispatchers
@@ -27,44 +25,51 @@ data class LabelModel(
     val type: String = "user" // "user" or "system"
 )
 
-class GmailRepository(private val context: Context) {
+class GmailRepository(
+    private val context: Context,
+    private val authManager: AuthManager
+) {
 
-    private var gmailService: Gmail? = null
     private var needsResponseLabelId: String? = null
-    var credential: GoogleAccountCredential? = null
-        private set
     var activeAccount: String? = null
         private set
 
     fun initialize(accountName: String) {
         activeAccount = accountName
-        val cred = GoogleAccountCredential.usingOAuth2(
-            context, listOf(GmailScopes.GMAIL_MODIFY)
-        ).apply {
-            selectedAccountName = accountName
-        }
-        credential = cred
+    }
 
-        gmailService = Gmail.Builder(
+    /**
+     * Builds an authorized Gmail API service instance using the fresh OAuth 2.0 access token
+     * obtained from AuthManager.
+     */
+    private suspend fun getService(): Gmail = withContext(Dispatchers.IO) {
+        val token = authManager.getFreshAccessToken()
+            ?: throw IllegalStateException("Google authorization expired or not connected. Please connect your Gmail account.")
+
+        val requestInitializer = HttpRequestInitializer { request ->
+            request.headers.authorization = "Bearer $token"
+            request.connectTimeout = 20000
+            request.readTimeout = 20000
+        }
+
+        Gmail.Builder(
             GoogleNetHttpTransport.newTrustedTransport(),
             GsonFactory.getDefaultInstance(),
-            cred
+            requestInitializer
         ).setApplicationName("Zero Inbox").build()
     }
 
     /**
-     * Proactively checks for an OAuth token from Google Play Services.
-     * Throws UserRecoverableAuthIOException if user consent dialog is needed.
+     * Verifies that a valid access token exists or can be refreshed.
      */
     suspend fun verifyOrRequestAuth(): String? = withContext(Dispatchers.IO) {
-        val cred = credential ?: throw IllegalStateException("Gmail service not initialized. Please connect your Gmail account.")
-        cred.token
+        authManager.getFreshAccessToken()
+            ?: throw IllegalStateException("Google authorization expired or not connected. Please connect your Gmail account.")
     }
 
     suspend fun fetchEmails(pageToken: String? = null, filterTwoDays: Boolean = true): Pair<List<EmailModel>, String?> = withContext(Dispatchers.IO) {
-        val service = gmailService ?: throw IllegalStateException("Gmail service not initialized. Please connect your Gmail account.")
+        val service = getService()
 
-        // Primary inbox query: retrieves all messages currently residing in the user's INBOX
         var request = service.users().messages().list("me")
             .setLabelIds(listOf("INBOX"))
             .setMaxResults(50L)
@@ -79,7 +84,6 @@ class GmailRepository(private val context: Context) {
         val messages = listResponse.messages ?: emptyList()
         val emailModels = messages.mapNotNull { msgMeta ->
             try {
-                // Fetch the message metadata to get headers and snippet
                 val msg = service.users().messages().get("me", msgMeta.id)
                     .setFormat("metadata")
                     .setMetadataHeaders(listOf("Subject", "From", "Date"))
@@ -106,47 +110,47 @@ class GmailRepository(private val context: Context) {
     }
 
     suspend fun archiveEmail(threadId: String) = withContext(Dispatchers.IO) {
-        gmailService?.users()?.threads()?.modify(
+        getService().users().threads().modify(
             "me",
             threadId,
             ModifyThreadRequest().setRemoveLabelIds(listOf("INBOX"))
-        )?.execute()
+        ).execute()
     }
 
     suspend fun markRead(threadId: String) = withContext(Dispatchers.IO) {
-        gmailService?.users()?.threads()?.modify(
+        getService().users().threads().modify(
             "me",
             threadId,
             ModifyThreadRequest().setRemoveLabelIds(listOf("UNREAD"))
-        )?.execute()
+        ).execute()
     }
 
     suspend fun deleteEmail(threadId: String) = withContext(Dispatchers.IO) {
-        gmailService?.users()?.threads()?.trash("me", threadId)?.execute()
+        getService().users().threads().trash("me", threadId).execute()
     }
 
     suspend fun unarchiveEmail(threadId: String) = withContext(Dispatchers.IO) {
-        gmailService?.users()?.threads()?.modify(
+        getService().users().threads().modify(
             "me",
             threadId,
             ModifyThreadRequest().setAddLabelIds(listOf("INBOX"))
-        )?.execute()
+        ).execute()
     }
 
     suspend fun untrashEmail(threadId: String) = withContext(Dispatchers.IO) {
-        gmailService?.users()?.threads()?.untrash("me", threadId)?.execute()
+        getService().users().threads().untrash("me", threadId).execute()
     }
 
     suspend fun markUnread(threadId: String) = withContext(Dispatchers.IO) {
-        gmailService?.users()?.threads()?.modify(
+        getService().users().threads().modify(
             "me",
             threadId,
             ModifyThreadRequest().setAddLabelIds(listOf("UNREAD"))
-        )?.execute()
+        ).execute()
     }
 
     suspend fun removeNeedsResponse(threadId: String) = withContext(Dispatchers.IO) {
-        val service = gmailService ?: return@withContext
+        val service = getService()
         val labelId = needsResponseLabelId ?: run {
             val labels = service.users().labels().list("me").execute().labels
             labels?.find { it.name == "Needs Response" }?.id
@@ -160,7 +164,7 @@ class GmailRepository(private val context: Context) {
     }
 
     suspend fun applyNeedsResponse(threadId: String) = withContext(Dispatchers.IO) {
-        val service = gmailService ?: return@withContext
+        val service = getService()
 
         if (needsResponseLabelId == null) {
             val labels = service.users().labels().list("me").execute().labels
@@ -184,7 +188,7 @@ class GmailRepository(private val context: Context) {
     }
 
     suspend fun fetchLabels(): List<LabelModel> = withContext(Dispatchers.IO) {
-        val service = gmailService ?: throw IllegalStateException("Gmail service not initialized")
+        val service = getService()
         val response = service.users().labels().list("me").execute()
         val labels = response.labels ?: emptyList()
 
@@ -196,7 +200,7 @@ class GmailRepository(private val context: Context) {
     }
 
     suspend fun applyLabelAndArchive(threadId: String, labelId: String) = withContext(Dispatchers.IO) {
-        val service = gmailService ?: throw IllegalStateException("Gmail service not initialized")
+        val service = getService()
         service.users().threads().modify(
             "me",
             threadId,
@@ -207,7 +211,7 @@ class GmailRepository(private val context: Context) {
     }
 
     suspend fun unapplyLabel(threadId: String, labelId: String) = withContext(Dispatchers.IO) {
-        val service = gmailService ?: return@withContext
+        val service = getService()
         service.users().threads().modify(
             "me",
             threadId,
@@ -239,8 +243,8 @@ class GmailRepository(private val context: Context) {
                 id = "demo-3",
                 threadId = "demo-thread-3",
                 sender = "Google Cloud <no-reply-cloud@google.com>",
-                subject = "Google Cloud Console: OAuth Consent Screen Configured",
-                snippet = "Your OAuth consent screen settings have been saved for project Zero Inbox. Verify your Gmail API scopes.",
+                subject = "Google Cloud Console: Web OAuth Configured",
+                snippet = "Your OAuth consent screen settings and redirect URIs have been updated for Zero Inbox.",
                 isDemo = true
             ),
             EmailModel(
@@ -272,4 +276,3 @@ class GmailRepository(private val context: Context) {
         )
     }
 }
-

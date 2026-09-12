@@ -35,21 +35,18 @@ To build and run this app with your own Gmail account, you must configure a Goog
 3. Fill in the required app details (App Name, Support Email).
 4. **Important:** If your app is in "Testing" mode, you *must* add your personal Gmail address to the **Test users** list, or you will not be able to log in.
 
-### 3. Create Android OAuth Client ID
-To authenticate successfully, Google needs to verify the cryptographic signature of the APK. This repository includes a deterministic `debug.keystore` to ensure CI/CD builds match your Google Cloud configuration.
+### 3. Create OAuth Client ID (Web / Desktop App)
+Zero Inbox uses standard OAuth 2.0 Web authorization (via AppAuth) rather than device-bound Google Play Services tokens. This allows you to log into any Google account through your default browser with standard consent screens.
 
 1. Go to **APIs & Services** > **Credentials**.
 2. Click **Create Credentials** > **OAuth client ID**.
-3. Select **Android** as the Application type.
-4. **Name:** `Zero Inbox Android` (or similar)
-5. **Package name:** `com.example.zeroinbox`
-6. **SHA-1 certificate fingerprint:**
+3. Select **Desktop app** (or **Web application**) as the Application type.
+4. Set the **Authorized redirect URI** to:
    ```text
-   87:D1:D4:79:4B:29:DD:C4:78:4A:D3:C7:AD:02:E7:E6:51:FB:41:FB
+   com.example.zeroinbox:/oauth2redirect
    ```
-7. Click **Create**.
-
-*Note: The SHA-1 above corresponds to the `android/app/debug.keystore` checked into this repository. GitHub Actions CI builds will use this exact signature.*
+5. Click **Create**.
+6. The app comes pre-configured with a default client ID, or you can supply your own client ID in the app settings. When you tap **Sign In With Google (Browser)**, the app opens Chrome Custom Tabs / your browser, where you log into whatever Google account is needed and grant permissions. Upon completion, Google redirects back to `com.example.zeroinbox:/oauth2redirect`, where the app exchanges the code for access and refresh tokens.
 
 ## 🏗️ Building Locally
 

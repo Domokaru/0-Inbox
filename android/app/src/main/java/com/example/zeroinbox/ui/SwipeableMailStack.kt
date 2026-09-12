@@ -275,7 +275,7 @@ fun SwipeableMailStack(
                     )
                     Spacer(modifier = Modifier.height(8.dp))
                     Text(
-                        text = "Connect your Google account to triage your Gmail inbox with 4-way gesture swipes.",
+                        text = "Connect your Google account via web browser to triage your Gmail inbox with 4-way gesture swipes.",
                         fontSize = 12.5.sp,
                         color = if (isDarkTheme) Color(0xFFAAAAAA) else Color(0xFF64748B),
                         textAlign = androidx.compose.ui.text.style.TextAlign.Center,
@@ -291,7 +291,7 @@ fun SwipeableMailStack(
                         Icon(Icons.Default.AccountCircle, contentDescription = null, tint = Color.Black, modifier = Modifier.size(20.dp))
                         Spacer(modifier = Modifier.width(8.dp))
                         Text(
-                            text = "CONNECT GMAIL ACCOUNT",
+                            text = "SIGN IN WITH GOOGLE (BROWSER)",
                             color = Color.Black,
                             fontWeight = FontWeight.Bold,
                             fontSize = 13.sp
@@ -1098,13 +1098,13 @@ fun GoogleCloudSetupDialog(
                 verticalArrangement = Arrangement.spacedBy(10.dp)
             ) {
                 Text(
-                    text = "0 Inbox uses Android's official Google Play Services Gmail API. To authorize connections from your device:",
+                    text = "0 Inbox uses Google's standard OAuth 2.0 Web authorization (via AppAuth). When you tap sign in, your browser opens Google's official login page to authorize Gmail:",
                     fontSize = 12.5.sp,
                     lineHeight = 17.sp,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
 
-                // Step 1: Package Name
+                // Step 1: Redirect URI
                 Card(
                     modifier = Modifier.fillMaxWidth(),
                     colors = CardDefaults.cardColors(
@@ -1113,18 +1113,18 @@ fun GoogleCloudSetupDialog(
                     shape = RoundedCornerShape(10.dp)
                 ) {
                     Column(modifier = Modifier.padding(10.dp)) {
-                        Text("1. PACKAGE NAME", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = primaryAccent)
+                        Text("1. AUTHORIZED REDIRECT URI", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = primaryAccent)
                         Spacer(modifier = Modifier.height(2.dp))
                         Row(
                             modifier = Modifier.fillMaxWidth(),
                             horizontalArrangement = Arrangement.SpaceBetween,
                             verticalAlignment = Alignment.CenterVertically
                         ) {
-                            Text("com.example.zeroinbox", fontSize = 12.sp, fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace)
+                            Text("com.example.zeroinbox:/oauth2redirect", fontSize = 11.5.sp, fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace)
                             IconButton(
                                 onClick = {
-                                    clipboardManager.setText(AnnotatedString("com.example.zeroinbox"))
-                                    Toast.makeText(context, "Package name copied!", Toast.LENGTH_SHORT).show()
+                                    clipboardManager.setText(AnnotatedString("com.example.zeroinbox:/oauth2redirect"))
+                                    Toast.makeText(context, "Redirect URI copied!", Toast.LENGTH_SHORT).show()
                                 },
                                 modifier = Modifier.size(28.dp)
                             ) {
@@ -1134,7 +1134,7 @@ fun GoogleCloudSetupDialog(
                     }
                 }
 
-                // Step 2: SHA-1 Fingerprint
+                // Step 2: Client ID
                 Card(
                     modifier = Modifier.fillMaxWidth(),
                     colors = CardDefaults.cardColors(
@@ -1143,10 +1143,10 @@ fun GoogleCloudSetupDialog(
                     shape = RoundedCornerShape(10.dp)
                 ) {
                     Column(modifier = Modifier.padding(10.dp)) {
-                        Text("2. SIGNING SHA-1 FINGERPRINT", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = primaryAccent)
+                        Text("2. DEFAULT OAUTH CLIENT ID", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = primaryAccent)
                         Spacer(modifier = Modifier.height(2.dp))
                         Text(
-                            text = effectiveSha1,
+                            text = "683169336275-0n04hpf7nf0apm025u4midmdtuggass5.apps.googleusercontent.com",
                             fontSize = 10.5.sp,
                             fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace,
                             lineHeight = 14.sp
@@ -1154,8 +1154,8 @@ fun GoogleCloudSetupDialog(
                         Spacer(modifier = Modifier.height(6.dp))
                         Button(
                             onClick = {
-                                clipboardManager.setText(AnnotatedString(effectiveSha1))
-                                Toast.makeText(context, "SHA-1 fingerprint copied!", Toast.LENGTH_SHORT).show()
+                                clipboardManager.setText(AnnotatedString("683169336275-0n04hpf7nf0apm025u4midmdtuggass5.apps.googleusercontent.com"))
+                                Toast.makeText(context, "Client ID copied!", Toast.LENGTH_SHORT).show()
                             },
                             modifier = Modifier.fillMaxWidth().height(32.dp),
                             shape = RoundedCornerShape(6.dp),
@@ -1163,7 +1163,7 @@ fun GoogleCloudSetupDialog(
                         ) {
                             Icon(Icons.Default.ContentCopy, contentDescription = null, modifier = Modifier.size(14.dp))
                             Spacer(modifier = Modifier.width(6.dp))
-                            Text("Copy SHA-1 Fingerprint", fontSize = 11.sp)
+                            Text("Copy Client ID", fontSize = 11.sp)
                         }
                     }
                 }
@@ -1179,8 +1179,9 @@ fun GoogleCloudSetupDialog(
                     Column(modifier = Modifier.padding(10.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                         Text("3. GOOGLE CLOUD CONSOLE CHECKLIST", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = primaryAccent)
                         Text("• APIs & Services > Library: Ensure 'Gmail API' is Enabled.", fontSize = 11.5.sp)
-                        Text("• Credentials > Create Credentials > OAuth client ID: Choose 'Android', enter Package Name & SHA-1 above.", fontSize = 11.5.sp)
-                        Text("• OAuth consent screen > Test users: Add your Gmail address so Google allows your device to sign in.", fontSize = 11.5.sp)
+                        Text("• Credentials > Create Credentials > OAuth client ID: Create a Desktop / Web client ID.", fontSize = 11.5.sp)
+                        Text("• Set Authorized redirect URI to: com.example.zeroinbox:/oauth2redirect", fontSize = 11.5.sp)
+                        Text("• OAuth consent screen > Test users: Add your Gmail address so Google allows sign-in during testing.", fontSize = 11.5.sp)
                     }
                 }
             }

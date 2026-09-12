@@ -1,16 +1,10 @@
 package com.example.zeroinbox
 
-import android.content.Intent
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
-import com.google.android.gms.auth.UserRecoverableAuthException
-import com.google.api.client.googleapis.extensions.android.gms.auth.UserRecoverableAuthIOException
-import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 
@@ -56,10 +50,6 @@ class MailViewModel(private val repository: GmailRepository) : ViewModel() {
     private val _errorMessage = MutableStateFlow<String?>(null)
     val errorMessage: StateFlow<String?> = _errorMessage.asStateFlow()
 
-    // Emits OAuth recovery intent so MainActivity can display Google Account Consent Screen
-    private val _authRecoveryIntent = MutableSharedFlow<Intent>(replay = 1)
-    val authRecoveryIntent: SharedFlow<Intent> = _authRecoveryIntent.asSharedFlow()
-
     private var currentNextPageToken: String? = null
     private var isInitialized = false
 
@@ -100,20 +90,6 @@ class MailViewModel(private val repository: GmailRepository) : ViewModel() {
         isInitialized = false
     }
 
-    private fun findAuthRecoveryIntent(throwable: Throwable?): Intent? {
-        var current = throwable
-        var depth = 0
-        while (current != null && depth < 10) {
-            when (current) {
-                is UserRecoverableAuthIOException -> return current.intent
-                is UserRecoverableAuthException -> return current.intent
-            }
-            current = current.cause
-            depth++
-        }
-        return null
-    }
-
     private fun formatDetailedErrorMessage(throwable: Throwable?): String {
         var current = throwable
         var depth = 0
@@ -134,12 +110,8 @@ class MailViewModel(private val repository: GmailRepository) : ViewModel() {
             }
 
             val msgLower = (msg ?: "").lowercase()
-            val cleanMsg = msgLower.replace("_", "").replace(" ", "")
-            if (cleanMsg.contains("unregisteredonapiconsole")) {
-                return "Google Cloud Setup Required: Android OAuth client ID is not registered for package 'com.example.zeroinbox' with your keystore SHA-1."
-            }
-            if (msgLower.contains("developer_error")) {
-                return "Google Play Services Error: Keystore SHA-1 fingerprint mismatch with Google Cloud Console."
+            if (msgLower.contains("401") || msgLower.contains("unauthorized") || msgLower.contains("invalid_grant") || msgLower.contains("expired") || msgLower.contains("not connected")) {
+                return "Google authorization expired or not connected. Tap 'Connect Gmail' to log in via browser."
             }
             if (msgLower.contains("access_denied") || msgLower.contains("access blocked") || msgLower.contains("not completed the google verification")) {
                 return "Access Blocked: Your Gmail address must be added to 'Test users' in Google Cloud Console > OAuth consent screen."
@@ -147,21 +119,14 @@ class MailViewModel(private val repository: GmailRepository) : ViewModel() {
             if (msgLower.contains("api has not been used") || msgLower.contains("disabled")) {
                 return "Gmail API is not enabled in your Google Cloud project. Enable it in Google Cloud Console."
             }
+            if (msgLower.contains("redirect_uri_mismatch")) {
+                return "Redirect URI mismatch in Google Cloud Console. Ensure 'com.example.zeroinbox:/oauth2redirect' is registered."
+            }
             current = current.cause
             depth++
         }
 
-        return fallbackMsg ?: throwable?.localizedMessage ?: "Failed to connect to Gmail. Check network or account permissions."
-    }
-
-    fun onAuthRecoverySuccess() {
-        _errorMessage.value = null
-        loadNextBatch()
-        refreshLabels()
-    }
-
-    fun onAuthRecoveryFailed() {
-        _errorMessage.value = "Google authorization was not completed. Please grant Gmail permissions to continue."
+        return fallbackMsg ?: throwable?.localizedMessage ?: "Failed to connect to Gmail. Check network or permissions."
     }
 
     fun retryAuth() {
@@ -185,11 +150,6 @@ class MailViewModel(private val repository: GmailRepository) : ViewModel() {
                 _labels.value = repository.fetchLabels()
             } catch (e: Exception) {
                 e.printStackTrace()
-                val recoveryIntent = findAuthRecoveryIntent(e)
-                if (recoveryIntent != null) {
-                    _authRecoveryIntent.emit(recoveryIntent)
-                    _errorMessage.value = "Google permissions required. Please grant access in the consent prompt."
-                }
             } finally {
                 _isRefreshingLabels.value = false
             }
@@ -219,13 +179,7 @@ class MailViewModel(private val repository: GmailRepository) : ViewModel() {
                 }
             } catch (e: Exception) {
                 e.printStackTrace()
-                val recoveryIntent = findAuthRecoveryIntent(e)
-                if (recoveryIntent != null) {
-                    _authRecoveryIntent.emit(recoveryIntent)
-                    _errorMessage.value = "Google permission required. Please grant access in the consent prompt."
-                } else {
-                    _errorMessage.value = formatDetailedErrorMessage(e)
-                }
+                _errorMessage.value = formatDetailedErrorMessage(e)
             } finally {
                 _isLoading.value = false
             }
@@ -257,10 +211,7 @@ class MailViewModel(private val repository: GmailRepository) : ViewModel() {
                 }
             } catch (e: Exception) {
                 e.printStackTrace()
-                val recoveryIntent = findAuthRecoveryIntent(e)
-                if (recoveryIntent != null) {
-                    _authRecoveryIntent.emit(recoveryIntent)
-                }
+                _errorMessage.value = formatDetailedErrorMessage(e)
             }
         }
     }
@@ -280,10 +231,7 @@ class MailViewModel(private val repository: GmailRepository) : ViewModel() {
                 repository.applyLabelAndArchive(email.threadId, label.id)
             } catch (e: Exception) {
                 e.printStackTrace()
-                val recoveryIntent = findAuthRecoveryIntent(e)
-                if (recoveryIntent != null) {
-                    _authRecoveryIntent.emit(recoveryIntent)
-                }
+                _errorMessage.value = formatDetailedErrorMessage(e)
             }
         }
     }
