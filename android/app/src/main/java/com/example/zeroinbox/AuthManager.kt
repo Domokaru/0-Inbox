@@ -84,7 +84,16 @@ class AuthManager(private val context: Context) {
     }
 
     fun setClientId(clientId: String) {
-        prefs.edit().putString(KEY_CUSTOM_CLIENT_ID, clientId.trim()).apply()
+        val trimmed = clientId.trim()
+        if (trimmed.isEmpty() || trimmed == DEFAULT_CLIENT_ID) {
+            resetClientId()
+        } else {
+            prefs.edit().putString(KEY_CUSTOM_CLIENT_ID, trimmed).apply()
+        }
+    }
+
+    fun resetClientId() {
+        prefs.edit().remove(KEY_CUSTOM_CLIENT_ID).apply()
     }
 
     fun getRedirectUri(): Uri {

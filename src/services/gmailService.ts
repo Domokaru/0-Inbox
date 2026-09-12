@@ -16,10 +16,7 @@ const app = getApps().length === 0 ? initializeApp(firebaseConfig) : getApp();
 export const auth = getAuth(app);
 
 export const GMAIL_SCOPES = [
-  'https://mail.google.com/',
   'https://www.googleapis.com/auth/gmail.modify',
-  'https://www.googleapis.com/auth/gmail.labels',
-  'https://www.googleapis.com/auth/gmail.readonly',
 ];
 
 const provider = new GoogleAuthProvider();

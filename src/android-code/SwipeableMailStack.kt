@@ -250,6 +250,23 @@ fun SwipeableMailStack(
                 Icon(Icons.Default.Edit, contentDescription = "Needs Update", tint = secondaryAccent)
             }
 
+            // 3. Mark Read (Down) - Neon Lighter Blue (not teal or aqua)
+            IconButton(
+                onClick = {
+                    if (emails.isNotEmpty()) {
+                        val email = emails.last()
+                        showPopupAndClear(SwipeDirection.DOWN, isDarkTheme) { activePopup = it }
+                        viewModel.processEmailSwipe(email, SwipeDirection.DOWN)
+                    }
+                },
+                modifier = Modifier
+                    .size(42.dp)
+                    .background(if (isDarkTheme) Color(0x224D9FFF) else Color(0x152563EB), CircleShape)
+                    .border(1.dp, if (isDarkTheme) Color(0x664D9FFF) else Color(0x442563EB), CircleShape)
+            ) {
+                Icon(Icons.Default.Drafts, contentDescription = "Mark Read", tint = if (isDarkTheme) Color(0xFF4D9FFF) else Color(0xFF2563EB))
+            }
+
             // 3. Assign Custom Label (NO SWIPE ACTIVITY - Long press or tap button opens Gmail labels dialog)
             IconButton(
                 onClick = {
@@ -265,24 +282,7 @@ fun SwipeableMailStack(
                 Icon(Icons.Default.DriveFileMove, contentDescription = "Assign Gmail Label", tint = primaryAccent)
             }
 
-            // 4. Mark Read (Down)
-            IconButton(
-                onClick = {
-                    if (emails.isNotEmpty()) {
-                        val email = emails.last()
-                        showPopupAndClear(SwipeDirection.DOWN, isDarkTheme) { activePopup = it }
-                        viewModel.processEmailSwipe(email, SwipeDirection.DOWN)
-                    }
-                },
-                modifier = Modifier
-                    .size(42.dp)
-                    .background(if (isDarkTheme) Color(0x22007BFF) else Color(0x153B82F6), CircleShape)
-                    .border(1.dp, if (isDarkTheme) Color(0x66007BFF) else Color(0x443B82F6), CircleShape)
-            ) {
-                Icon(Icons.Default.Drafts, contentDescription = "Mark Read", tint = tertiaryAccent)
-            }
-
-            // 5. Archive (Right)
+            // 4. Archive (Right)
             IconButton(
                 onClick = {
                     if (emails.isNotEmpty()) {
@@ -571,7 +571,7 @@ private fun showPopupAndClear(
         )
         SwipeDirection.DOWN -> Pair(
             Icons.Default.Drafts,
-            if (isDarkTheme) Color(0xFF007BFF) else Color(0xFF3B82F6)
+            if (isDarkTheme) Color(0xFF4D9FFF) else Color(0xFF2563EB)
         )
     }
 

@@ -1,0 +1,39 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+
+    <!-- Outer Neon Frame with Rounded Corners -->
+    <path
+        android:strokeColor="#FF00FF"
+        android:strokeWidth="2.4"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round"
+        android:pathData="M 42,28 L 66,28 A 14,14 0 0 1 80,42 L 80,66 A 14,14 0 0 1 66,80 L 42,80 A 14,14 0 0 1 28,66 L 28,42 A 14,14 0 0 1 42,28 Z" />
+
+    <!-- Mail Envelope Body in Neon Cyan -->
+    <path
+        android:strokeColor="#00FFFF"
+        android:strokeWidth="2.8"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round"
+        android:pathData="M 37,41 L 71,41 A 4,4 0 0 1 75,45 L 75,64 A 4,4 0 0 1 71,68 L 37,68 A 4,4 0 0 1 33,64 L 33,45 A 4,4 0 0 1 37,41 Z" />
+
+    <!-- Mail Envelope Flap (V Fold) -->
+    <path
+        android:strokeColor="#00FFFF"
+        android:strokeWidth="2.8"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round"
+        android:pathData="M 33,42 L 54,56 L 75,42" />
+
+    <!-- Mail Bottom Creases in Neon Lighter Blue -->
+    <path
+        android:strokeColor="#4D9FFF"
+        android:strokeWidth="2.0"
+        android:strokeLineCap="round"
+        android:pathData="M 34,67 L 48,53 M 74,67 L 60,53" />
+
+</vector>

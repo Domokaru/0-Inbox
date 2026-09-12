@@ -123,13 +123,13 @@ jobs:
 
       - name: Verify APK Generated
         run: |
-          cp android/app/build/outputs/apk/debug/app-debug.apk ./ZeroInbox-v1.0.0-debug.apk
+          cp android/app/build/outputs/apk/debug/app-debug.apk ./ZeroInbox-v1.0.1-debug.apk
 
       - name: Upload APK Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: ZeroInbox-v1.0.0-debug-APK
-          path: ./ZeroInbox-v1.0.0-debug.apk
+          name: ZeroInbox-v1.0.1-debug-APK
+          path: ./ZeroInbox-v1.0.1-debug.apk
           retention-days: 90
 `);
       }
@@ -192,6 +192,59 @@ jobs:
         <item name="android:navigationBarColor">#0A0A0E</item>
     </style>
 </resources>`);
+
+            // Launcher Icon Drawables
+            const drawableFolder = resFolder.folder('drawable');
+            drawableFolder?.file('ic_launcher_background.xml', `<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <path
+        android:fillColor="#0D0E15"
+        android:pathData="M0,0h108v108h-108z" />
+</vector>`);
+            drawableFolder?.file('ic_launcher_foreground.xml', `<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <path
+        android:strokeColor="#FF00FF"
+        android:strokeWidth="2.4"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round"
+        android:pathData="M 42,28 L 66,28 A 14,14 0 0 1 80,42 L 80,66 A 14,14 0 0 1 66,80 L 42,80 A 14,14 0 0 1 28,66 L 28,42 A 14,14 0 0 1 42,28 Z" />
+    <path
+        android:strokeColor="#00FFFF"
+        android:strokeWidth="2.8"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round"
+        android:pathData="M 37,41 L 71,41 A 4,4 0 0 1 75,45 L 75,64 A 4,4 0 0 1 71,68 L 37,68 A 4,4 0 0 1 33,64 L 33,45 A 4,4 0 0 1 37,41 Z" />
+    <path
+        android:strokeColor="#00FFFF"
+        android:strokeWidth="2.8"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round"
+        android:pathData="M 33,42 L 54,56 L 75,42" />
+    <path
+        android:strokeColor="#4D9FFF"
+        android:strokeWidth="2.0"
+        android:strokeLineCap="round"
+        android:pathData="M 34,67 L 48,53 M 74,67 L 60,53" />
+</vector>`);
+
+            // Adaptive Launcher Icons for Android 8.0+ (API 26+)
+            const mipmapFolder = resFolder.folder('mipmap-anydpi-v26');
+            const adaptiveXml = `<?xml version="1.0" encoding="utf-8"?>
+<adaptive-icon xmlns:android="http://schemas.android.com/apk/res/android">
+    <background android:drawable="@drawable/ic_launcher_background" />
+    <foreground android:drawable="@drawable/ic_launcher_foreground" />
+</adaptive-icon>`;
+            mipmapFolder?.file('ic_launcher.xml', adaptiveXml);
+            mipmapFolder?.file('ic_launcher_round.xml', adaptiveXml);
           }
         }
       }
@@ -298,7 +351,7 @@ jobs:
                 <span className="font-mono text-[10px] text-emerald-400 font-bold">STEP 3</span>
                 <p className="font-semibold mt-1">Download APK</p>
                 <p className={`text-[11px] mt-0.5 ${isDarkTheme ? 'text-gray-400' : 'text-slate-500'}`}>
-                  Go to repository &gt; <strong>Actions</strong> &gt; Click latest run &gt; Download <strong>ZeroInbox-v1.0.0-debug-APK</strong>!
+                  Go to repository &gt; <strong>Actions</strong> &gt; Click latest run &gt; Download <strong>ZeroInbox-v1.0.1-debug-APK</strong>!
                 </p>
               </div>
             </div>
