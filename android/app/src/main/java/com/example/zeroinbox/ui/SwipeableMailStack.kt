@@ -1068,7 +1068,7 @@ fun GoogleCloudSetupDialog(
     val effectiveSha1 = if (signingSha1.isNotBlank() && signingSha1 != "Unknown" && !signingSha1.startsWith("Unavailable")) {
         signingSha1
     } else {
-        "D1:4C:EC:9B:48:D5:FB:13:D3:4B:9E:45:3D:32:0F:9C:FA:8F:F3:65"
+        "87:D1:D4:79:4B:29:DD:C4:78:4A:D3:C7:AD:02:E7:E6:51:FB:41:FB"
     }
 
     AlertDialog(

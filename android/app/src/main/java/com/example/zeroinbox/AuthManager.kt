@@ -84,14 +84,20 @@ class AuthManager(private val context: Context) {
             }
 
             val signatures = if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.P) {
-                packageInfo.signingInfo?.apkContentsSigners
+                val signingInfo = packageInfo.signingInfo
+                when {
+                    signingInfo == null -> null
+                    signingInfo.hasMultipleSigners() -> signingInfo.apkContentsSigners
+                    else -> signingInfo.signingCertificateHistory
+                }
             } else {
                 @Suppress("DEPRECATION")
                 packageInfo.signatures
             }
 
             val cert = signatures?.firstOrNull()?.toByteArray() ?: return "Unknown"
-            val md = java.security.MessageDigest.getInstance(algorithm)
+            val standardAlgo = if (algorithm.equals("SHA1", ignoreCase = true)) "SHA-1" else algorithm
+            val md = java.security.MessageDigest.getInstance(standardAlgo)
             val digest = md.digest(cert)
             digest.joinToString(":") { String.format("%02X", it) }
         } catch (e: Exception) {

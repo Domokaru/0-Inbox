@@ -134,7 +134,8 @@ class MailViewModel(private val repository: GmailRepository) : ViewModel() {
             }
 
             val msgLower = (msg ?: "").lowercase()
-            if (msgLower.contains("unregistered_on_api_console")) {
+            val cleanMsg = msgLower.replace("_", "").replace(" ", "")
+            if (cleanMsg.contains("unregisteredonapiconsole")) {
                 return "Google Cloud Setup Required: Android OAuth client ID is not registered for package 'com.example.zeroinbox' with your keystore SHA-1."
             }
             if (msgLower.contains("developer_error")) {
