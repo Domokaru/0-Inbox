@@ -55,10 +55,8 @@ app.post('/api/imap/connect', async (req, res) => {
           err.message.includes('AUTHENTICATIONFAILED') ||
           err.message.includes('Command failed')));
 
-    if (isAuthFailed) {
-      console.warn(`[IMAP] Authentication failed for ${email}: Invalid credentials or App Password required.`);
-    } else {
-      console.error('IMAP Connect unexpected error:', err);
+    if (!isAuthFailed) {
+      console.error('IMAP Connect unexpected error:', err?.message || err);
     }
 
     const errorMessage = isAuthFailed
@@ -179,10 +177,8 @@ app.post('/api/imap/emails', async (req, res) => {
           err.message.includes('Invalid credentials') ||
           err.message.includes('Command failed')));
 
-    if (isAuthFailed) {
-      console.warn(`[IMAP] Fetch failed due to authentication failure for ${email}. Modern Gmail requires a 16-character App Password.`);
-    } else {
-      console.error('IMAP Fetch emails unexpected error:', err);
+    if (!isAuthFailed) {
+      console.error('IMAP Fetch emails unexpected error:', err?.message || err);
     }
 
     const statusCode = isAuthFailed ? 401 : 500;
@@ -257,10 +253,9 @@ app.post('/api/imap/action', async (req, res) => {
       (err.message && (err.message.includes('AUTHENTICATIONFAILED') || err.message.includes('Invalid credentials')));
 
     if (isAuthFailed) {
-      console.warn(`[IMAP Action ${action}] Auth failure for ${email}`);
       return res.status(401).json({ success: false, authenticationFailed: true, error: 'Gmail authentication failed. Please check your App Password.' });
     }
-    console.error(`IMAP Action (${action}) error:`, err);
+    console.error(`IMAP Action (${action}) error:`, err?.message || err);
     return res.status(500).json({ success: false, error: err.message || `Failed to perform ${action}` });
   } finally {
     try {
@@ -310,10 +305,9 @@ app.post('/api/imap/undo', async (req, res) => {
       (err.message && (err.message.includes('AUTHENTICATIONFAILED') || err.message.includes('Invalid credentials')));
 
     if (isAuthFailed) {
-      console.warn(`[IMAP Undo] Auth failure for ${email}`);
       return res.status(401).json({ success: false, authenticationFailed: true, error: 'Gmail authentication failed. Please check your App Password.' });
     }
-    console.error('IMAP Undo error:', err);
+    console.error('IMAP Undo error:', err?.message || err);
     return res.status(500).json({ success: false, error: err.message || 'Failed to undo action' });
   } finally {
     try {

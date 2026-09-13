@@ -401,24 +401,26 @@ export default function AndroidSimulator({
           `${now.getHours().toString().padStart(2, '0')}:${now.getMinutes().toString().padStart(2, '0')}`
         );
       } catch (err: any) {
-        console.warn('IMAP fetch notice:', err?.message || err);
+        const isAuthFailed =
+          err.isAuthFailed ||
+          (err.message &&
+            (err.message.includes('AUTHENTICATIONFAILED') ||
+              err.message.includes('Invalid credentials') ||
+              err.message.includes('authentication')));
+
         const errorMsg =
           err.message ||
           'Gmail authentication failed. Please verify your 16-character Google App Password.';
         setAuthError(errorMsg);
+
         // Switch cleanly to demo emails so the user can test the UI without being locked out
         setIsImapMode(false);
         setIsLiveGmailMode(false);
         setEmails(INITIAL_DEMO_EMAILS);
 
-        // If authentication failed with stored credentials, reopen setup modal to allow user to fix/re-enter App Password
-        if (
-          err.isAuthFailed ||
-          errorMsg.includes('AUTHENTICATIONFAILED') ||
-          errorMsg.includes('Invalid credentials') ||
-          errorMsg.includes('authentication')
-        ) {
-          setShowImapModal(true);
+        // Clear invalid stored credentials so the app doesn't repeatedly auto-retry with bad credentials
+        if (isAuthFailed) {
+          clearImapCredentials();
         }
       } finally {
         setIsLoadingEmails(false);
