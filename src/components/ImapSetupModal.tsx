@@ -225,141 +225,56 @@ export default function ImapSetupModal({
               </p>
             </div>
           </div>
-
-          {/* Small Help Button requested by user */}
-          <button
-            type="button"
-            onClick={() => setShowHelp(!showHelp)}
-            className={`mr-8 px-2.5 py-1.5 rounded-xl text-xs font-semibold flex items-center gap-1.5 transition-colors cursor-pointer border ${
-              showHelp
-                ? 'bg-cyan-500/20 border-cyan-500/50 text-cyan-300'
-                : isDarkTheme
-                ? 'bg-white/5 border-white/10 text-gray-300 hover:bg-white/10 hover:text-white'
-                : 'bg-slate-100 border-slate-300 text-slate-700 hover:bg-slate-200'
-            }`}
-            title="Click for instructions on generating an App Password"
-          >
-            <HelpCircle className="w-3.5 h-3.5 text-cyan-400" />
-            <span>Help</span>
-            {showHelp ? <ChevronUp className="w-3 h-3 opacity-60" /> : <ChevronDown className="w-3 h-3 opacity-60" />}
-          </button>
         </div>
 
-        {/* Expandable Help Instructions Drawer */}
-        {showHelp && (
+        {/* Last Used App Password (Device Stored) */}
+        {lastUsedPass && (
           <div
-            className={`mb-4 p-4 rounded-2xl border text-xs leading-relaxed space-y-3 ${
-              isDarkTheme
-                ? 'bg-[#1A1A26] border-cyan-500/30 text-gray-200'
-                : 'bg-cyan-50/70 border-cyan-200 text-slate-800'
+            className={`p-3 rounded-xl border mb-4 ${
+              isDarkTheme ? 'bg-[#12131D] border-white/10' : 'bg-white/90 border-cyan-200'
             }`}
           >
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-2 text-cyan-400 font-bold uppercase tracking-wider text-[11px]">
-                <Key className="w-3.5 h-3.5" />
-                <span>How to Get a Google App Password</span>
-              </div>
-              <a
-                href="https://myaccount.google.com/apppasswords"
-                target="_blank"
-                rel="noreferrer"
-                className="text-[11px] text-cyan-400 hover:text-cyan-300 underline font-semibold flex items-center gap-1"
-              >
-                <span>Direct Link</span>
-                <ExternalLink className="w-3 h-3" />
-              </a>
-            </div>
-
-            {/* Last Used App Password (Device Stored) moved into Help dropdown */}
-            {lastUsedPass && (
-              <div
-                className={`p-3 rounded-xl border ${
-                  isDarkTheme ? 'bg-[#12131D] border-white/10' : 'bg-white/90 border-cyan-200'
+            <div className="flex items-center justify-between mb-1.5">
+              <span
+                className={`text-[10px] font-bold uppercase tracking-wider ${
+                  isDarkTheme ? 'text-gray-400' : 'text-slate-600'
                 }`}
               >
-                <div className="flex items-center justify-between mb-1.5">
-                  <span
-                    className={`text-[10px] font-bold uppercase tracking-wider ${
-                      isDarkTheme ? 'text-gray-400' : 'text-slate-600'
-                    }`}
-                  >
-                    Last Used App Password (Device Stored)
-                  </span>
-                </div>
+                Last Used App Password (Device Stored)
+              </span>
+            </div>
 
-                <div
-                  onMouseDown={startHold}
-                  onMouseUp={cancelHold}
-                  onMouseLeave={cancelHold}
-                  onTouchStart={startHold}
-                  onTouchEnd={cancelHold}
-                  className={`relative overflow-hidden flex items-center justify-between p-2.5 rounded-lg border cursor-pointer select-none transition-all active:scale-[0.99] ${
-                    isDarkTheme
-                      ? 'bg-[#0A0B10] border-white/10 hover:border-cyan-500/40'
-                      : 'bg-slate-50 border-slate-300 hover:border-cyan-500'
-                  }`}
-                >
-                  <div className="flex items-center gap-2">
-                    <span className="font-mono text-sm tracking-widest text-emerald-400 font-bold">
-                      •••• •••• •••• ••••
-                    </span>
-                  </div>
-
-                  {isHolding && (
-                    <span className="text-cyan-400 font-bold text-xs animate-pulse">
-                      Holding... {Math.round(holdProgress)}%
-                    </span>
-                  )}
-
-                  {/* Visual Hold Progress Bar */}
-                  {isHolding && (
-                    <div
-                      className="absolute bottom-0 left-0 h-1 bg-cyan-400 transition-all duration-75"
-                      style={{ width: `${holdProgress}%` }}
-                    />
-                  )}
-                </div>
+            <div
+              onMouseDown={startHold}
+              onMouseUp={cancelHold}
+              onMouseLeave={cancelHold}
+              onTouchStart={startHold}
+              onTouchEnd={cancelHold}
+              className={`relative overflow-hidden flex items-center justify-between p-2.5 rounded-lg border cursor-pointer select-none transition-all active:scale-[0.99] ${
+                isDarkTheme
+                  ? 'bg-[#0A0B10] border-white/10 hover:border-cyan-500/40'
+                  : 'bg-slate-50 border-slate-300 hover:border-cyan-500'
+              }`}
+            >
+              <div className="flex items-center gap-2">
+                <span className="font-mono text-sm tracking-widest text-emerald-400 font-bold">
+                  •••• •••• •••• ••••
+                </span>
               </div>
-            )}
 
-            <ol className="list-decimal pl-4 space-y-1.5">
-              <li>
-                Go to your Google Account:{' '}
-                <a
-                  href="https://myaccount.google.com/security"
-                  target="_blank"
-                  rel="noreferrer"
-                  className="text-cyan-400 underline font-medium"
-                >
-                  myaccount.google.com/security
-                </a>
-              </li>
-              <li>
-                Under <strong>&ldquo;How you sign in to Google&rdquo;</strong>, ensure{' '}
-                <strong>2-Step Verification is turned ON</strong>.
-              </li>
-              <li>
-                Click on <strong>App passwords</strong> (or search <em>&ldquo;App passwords&rdquo;</em> in the top search bar).
-              </li>
-              <li>
-                Type an App name (e.g. <strong>&ldquo;Zero Inbox&rdquo;</strong>) and click <strong>Create</strong>.
-              </li>
-              <li>
-                Google displays a <strong>16-character code</strong> (e.g.{' '}
-                <span className="font-mono text-cyan-300">abcd efgh ijkl mnop</span>). Copy that code and paste it below!
-              </li>
-            </ol>
+              {isHolding && (
+                <span className="text-cyan-400 font-bold text-xs animate-pulse">
+                  Holding... {Math.round(holdProgress)}%
+                </span>
+              )}
 
-            <div className="pt-1 flex justify-end">
-              <a
-                href="https://myaccount.google.com/apppasswords"
-                target="_blank"
-                rel="noreferrer"
-                className="py-1.5 px-3 rounded-lg text-xs font-bold bg-cyan-400 hover:bg-cyan-300 text-black flex items-center gap-1.5 shadow-sm"
-              >
-                <span>Open Google App Passwords</span>
-                <ExternalLink className="w-3.5 h-3.5" />
-              </a>
+              {/* Visual Hold Progress Bar */}
+              {isHolding && (
+                <div
+                  className="absolute bottom-0 left-0 h-1 bg-cyan-400 transition-all duration-75"
+                  style={{ width: `${holdProgress}%` }}
+                />
+              )}
             </div>
           </div>
         )}
@@ -415,23 +330,13 @@ export default function ImapSetupModal({
 
           {/* App Password Input */}
           <div>
-            <div className="flex items-center justify-between mb-1.5">
-              <label
-                className={`block text-xs font-semibold uppercase tracking-wider ${
-                  isDarkTheme ? 'text-gray-300' : 'text-slate-700'
-                }`}
-              >
-                App Password
-              </label>
-              <button
-                type="button"
-                onClick={() => setShowHelp(true)}
-                className="text-xs text-cyan-400 hover:text-cyan-300 font-medium inline-flex items-center gap-1 hover:underline cursor-pointer"
-              >
-                <HelpCircle className="w-3 h-3" />
-                <span>How to get it?</span>
-              </button>
-            </div>
+            <label
+              className={`block text-xs font-semibold uppercase tracking-wider mb-1.5 ${
+                isDarkTheme ? 'text-gray-300' : 'text-slate-700'
+              }`}
+            >
+              App Password
+            </label>
             <div className="relative">
               <input
                 type={showPassword ? 'text' : 'password'}

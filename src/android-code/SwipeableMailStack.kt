@@ -1196,20 +1196,6 @@ fun ImapSetupDialog(
                         fontSize = 17.sp
                     )
                 }
-                // Small Help button on login screen
-                TextButton(
-                    onClick = { showHelp = !showHelp },
-                    contentPadding = PaddingValues(horizontal = 6.dp, vertical = 2.dp)
-                ) {
-                    Icon(Icons.Default.Info, contentDescription = null, tint = primaryAccent, modifier = Modifier.size(13.dp))
-                    Spacer(modifier = Modifier.width(4.dp))
-                    Text(
-                        text = if (showHelp) "Hide Help" else "How to get",
-                        fontSize = 11.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = primaryAccent
-                    )
-                }
             }
         },
         text = {
@@ -1254,6 +1240,44 @@ fun ImapSetupDialog(
                     }
                 }
 
+                // Stored Last Used App Password
+                if (initialPassword.isNotBlank()) {
+                    Card(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .pointerInput(Unit) {
+                                detectTapGestures(
+                                    onLongPress = {
+                                        pinInput = ""
+                                        showPinDialog = true
+                                    }
+                                )
+                            },
+                        colors = CardDefaults.cardColors(
+                            containerColor = if (isDarkTheme) Color(0xFF131722) else Color(0xFFEFF6FF)
+                        ),
+                        border = BorderStroke(1.dp, primaryAccent.copy(alpha = 0.35f)),
+                        shape = RoundedCornerShape(8.dp)
+                    ) {
+                        Column(modifier = Modifier.padding(8.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                            Text(
+                                text = "LAST USED APP PASSWORD (DEVICE STORED)",
+                                fontSize = 9.5.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = primaryAccent
+                            )
+                            Text(
+                                text = "•••• •••• •••• ••••",
+                                fontSize = 13.sp,
+                                fontFamily = FontFamily.Monospace,
+                                fontWeight = FontWeight.Bold,
+                                letterSpacing = 2.sp,
+                                color = if (isDarkTheme) Color.LightGray else Color.DarkGray
+                            )
+                        }
+                    }
+                }
+
                 // Email Input Field
                 OutlinedTextField(
                     value = emailInput,
@@ -1290,94 +1314,6 @@ fun ImapSetupDialog(
                     modifier = Modifier.fillMaxWidth()
                 )
 
-                // Expandable Help Guide Dropdown
-                if (showHelp) {
-                    Card(
-                        modifier = Modifier.fillMaxWidth(),
-                        colors = CardDefaults.cardColors(
-                            containerColor = if (isDarkTheme) Color(0xFF1B1B24) else Color(0xFFF8FAFC)
-                        ),
-                        border = BorderStroke(1.dp, primaryAccent.copy(alpha = 0.3f)),
-                        shape = RoundedCornerShape(10.dp)
-                    ) {
-                        Column(modifier = Modifier.padding(10.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                            // Stored Last Used App Password moved inside Help dropdown
-                            if (initialPassword.isNotBlank()) {
-                                Card(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .pointerInput(Unit) {
-                                            detectTapGestures(
-                                                onLongPress = {
-                                                    pinInput = ""
-                                                    showPinDialog = true
-                                                }
-                                            )
-                                        },
-                                    colors = CardDefaults.cardColors(
-                                        containerColor = if (isDarkTheme) Color(0xFF131722) else Color(0xFFEFF6FF)
-                                    ),
-                                    border = BorderStroke(1.dp, primaryAccent.copy(alpha = 0.35f)),
-                                    shape = RoundedCornerShape(8.dp)
-                                ) {
-                                    Column(modifier = Modifier.padding(8.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                                        Text(
-                                            text = "LAST USED APP PASSWORD (DEVICE STORED)",
-                                            fontSize = 9.5.sp,
-                                            fontWeight = FontWeight.Bold,
-                                            color = primaryAccent
-                                        )
-                                        Text(
-                                            text = "•••• •••• •••• ••••",
-                                            fontSize = 13.sp,
-                                            fontFamily = FontFamily.Monospace,
-                                            fontWeight = FontWeight.Bold,
-                                            letterSpacing = 2.sp,
-                                            color = if (isDarkTheme) Color.LightGray else Color.DarkGray
-                                        )
-                                    }
-                                }
-                                Spacer(modifier = Modifier.height(2.dp))
-                            }
-
-                            Text(
-                                "HOW TO GET AN APP PASSWORD",
-                                fontSize = 11.sp,
-                                fontWeight = FontWeight.Bold,
-                                color = primaryAccent
-                            )
-                            Text(
-                                "1. Go to Google Account > Security (2-Step Verification must be ON).",
-                                fontSize = 11.sp
-                            )
-                            Text(
-                                "2. Search for 'App passwords' or tap the button below.",
-                                fontSize = 11.sp
-                            )
-                            Text(
-                                "3. Create a new password named 'Zero Inbox' and paste the 16 characters above.",
-                                fontSize = 11.sp
-                            )
-
-                            Spacer(modifier = Modifier.height(2.dp))
-
-                            OutlinedButton(
-                                onClick = {
-                                    val intent = Intent(Intent.ACTION_VIEW, Uri.parse("https://myaccount.google.com/apppasswords"))
-                                    context.startActivity(intent)
-                                },
-                                modifier = Modifier.fillMaxWidth().height(34.dp),
-                                shape = RoundedCornerShape(6.dp),
-                                border = BorderStroke(1.dp, primaryAccent),
-                                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp)
-                            ) {
-                                Icon(Icons.Default.AccountCircle, contentDescription = null, tint = primaryAccent, modifier = Modifier.size(14.dp))
-                                Spacer(modifier = Modifier.width(6.dp))
-                                Text("OPEN GOOGLE APP PASSWORDS", fontSize = 10.5.sp, color = primaryAccent, fontWeight = FontWeight.Bold)
-                            }
-                        }
-                    }
-                }
             }
         },
         dismissButton = {
