@@ -11,8 +11,10 @@ app.use(express.json());
 
 // Helper to create an ImapFlow client for Gmail
 function createGmailClient(email: string, appPassword: string, verifyOnly = false) {
-  const cleanPassword = (appPassword || '').replace(/[\s-]+/g, '').trim();
-  let cleanEmail = (email || '').trim();
+  const cleanPassword = (appPassword || '')
+    .replace(/[\s\-_"“”'‘’\u200B-\u200D\uFEFF]/g, '')
+    .trim();
+  let cleanEmail = (email || '').trim().toLowerCase();
   if (cleanEmail && !cleanEmail.includes('@')) {
     cleanEmail = `${cleanEmail}@gmail.com`;
   }
@@ -43,18 +45,31 @@ app.post('/api/imap/connect', async (req, res) => {
   const client = createGmailClient(email, appPassword, true);
   try {
     await client.connect();
-    return res.json({ success: true, email: email.trim() });
+    return res.json({ success: true, email: email.trim().toLowerCase() });
   } catch (err: any) {
-    console.error('IMAP Connect error:', err);
-    let errorMessage = err.message || 'Failed to connect to Gmail IMAP';
-    if (
-      errorMessage.includes('Invalid credentials') ||
-      errorMessage.includes('AUTHENTICATIONFAILED') ||
-      errorMessage.includes('Command failed')
-    ) {
-      errorMessage = 'Invalid credentials. Please verify your Gmail address and 16-character Google App Password.';
+    const isAuthFailed =
+      err.authenticationFailed ||
+      err.serverResponseCode === 'AUTHENTICATIONFAILED' ||
+      (err.message &&
+        (err.message.includes('Invalid credentials') ||
+          err.message.includes('AUTHENTICATIONFAILED') ||
+          err.message.includes('Command failed')));
+
+    if (isAuthFailed) {
+      console.warn(`[IMAP] Authentication failed for ${email}: Invalid credentials or App Password required.`);
+    } else {
+      console.error('IMAP Connect unexpected error:', err);
     }
-    return res.status(401).json({ success: false, error: errorMessage });
+
+    const errorMessage = isAuthFailed
+      ? 'Invalid credentials. Modern Gmail requires a 16-character Google App Password (not your regular account password).'
+      : err.message || 'Failed to connect to Gmail IMAP';
+
+    return res.status(isAuthFailed ? 401 : 500).json({
+      success: false,
+      authenticationFailed: !!isAuthFailed,
+      error: errorMessage,
+    });
   } finally {
     try {
       client.close();
@@ -156,15 +171,23 @@ app.post('/api/imap/emails', async (req, res) => {
       lock.release();
     }
   } catch (err: any) {
-    console.error('IMAP Fetch emails error:', err);
     const isAuthFailed =
       err.authenticationFailed ||
       err.serverResponseCode === 'AUTHENTICATIONFAILED' ||
-      (err.message && (err.message.includes('AUTHENTICATIONFAILED') || err.message.includes('Invalid credentials') || err.message.includes('Command failed')));
-    
+      (err.message &&
+        (err.message.includes('AUTHENTICATIONFAILED') ||
+          err.message.includes('Invalid credentials') ||
+          err.message.includes('Command failed')));
+
+    if (isAuthFailed) {
+      console.warn(`[IMAP] Fetch failed due to authentication failure for ${email}. Modern Gmail requires a 16-character App Password.`);
+    } else {
+      console.error('IMAP Fetch emails unexpected error:', err);
+    }
+
     const statusCode = isAuthFailed ? 401 : 500;
     const errorMessage = isAuthFailed
-      ? 'Gmail authentication failed. Your 16-character Google App Password may be incorrect, expired, or revoked. Please verify your App Password.'
+      ? 'Gmail authentication failed. Modern Gmail requires a 16-character Google App Password (not your regular account password). Verify your App Password at myaccount.google.com/apppasswords.'
       : (err.message || 'Failed to fetch emails');
 
     return res.status(statusCode).json({
@@ -228,6 +251,15 @@ app.post('/api/imap/action', async (req, res) => {
     await client.logout();
     return res.json({ success: true });
   } catch (err: any) {
+    const isAuthFailed =
+      err.authenticationFailed ||
+      err.serverResponseCode === 'AUTHENTICATIONFAILED' ||
+      (err.message && (err.message.includes('AUTHENTICATIONFAILED') || err.message.includes('Invalid credentials')));
+
+    if (isAuthFailed) {
+      console.warn(`[IMAP Action ${action}] Auth failure for ${email}`);
+      return res.status(401).json({ success: false, authenticationFailed: true, error: 'Gmail authentication failed. Please check your App Password.' });
+    }
     console.error(`IMAP Action (${action}) error:`, err);
     return res.status(500).json({ success: false, error: err.message || `Failed to perform ${action}` });
   } finally {
@@ -272,6 +304,15 @@ app.post('/api/imap/undo', async (req, res) => {
     await client.logout();
     return res.json({ success: true });
   } catch (err: any) {
+    const isAuthFailed =
+      err.authenticationFailed ||
+      err.serverResponseCode === 'AUTHENTICATIONFAILED' ||
+      (err.message && (err.message.includes('AUTHENTICATIONFAILED') || err.message.includes('Invalid credentials')));
+
+    if (isAuthFailed) {
+      console.warn(`[IMAP Undo] Auth failure for ${email}`);
+      return res.status(401).json({ success: false, authenticationFailed: true, error: 'Gmail authentication failed. Please check your App Password.' });
+    }
     console.error('IMAP Undo error:', err);
     return res.status(500).json({ success: false, error: err.message || 'Failed to undo action' });
   } finally {

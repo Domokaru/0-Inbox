@@ -41,8 +41,20 @@ export function getLastUsedAppPassword(): string | null {
   }
 }
 
+export function sanitizePassword(appPassword: string): string {
+  return (appPassword || '').replace(/[\s\-_"“”'‘’\u200B-\u200D\uFEFF]/g, '').trim();
+}
+
+export function sanitizeEmail(email: string): string {
+  let cleanEmail = (email || '').trim().toLowerCase();
+  if (cleanEmail && !cleanEmail.includes('@')) {
+    cleanEmail = `${cleanEmail}@gmail.com`;
+  }
+  return cleanEmail;
+}
+
 export function saveLastUsedAppPassword(appPassword: string) {
-  const cleanPassword = (appPassword || '').replace(/[\s-]+/g, '').trim();
+  const cleanPassword = sanitizePassword(appPassword);
   if (cleanPassword) {
     try {
       localStorage.setItem(LAST_APP_PASSWORD_KEY, cleanPassword);
@@ -51,11 +63,8 @@ export function saveLastUsedAppPassword(appPassword: string) {
 }
 
 export function saveImapCredentials(email: string, appPassword: string) {
-  const cleanPassword = (appPassword || '').replace(/[\s-]+/g, '').trim();
-  let cleanEmail = (email || '').trim();
-  if (cleanEmail && !cleanEmail.includes('@')) {
-    cleanEmail = `${cleanEmail}@gmail.com`;
-  }
+  const cleanPassword = sanitizePassword(appPassword);
+  const cleanEmail = sanitizeEmail(email);
   try {
     localStorage.setItem(
       IMAP_STORAGE_KEY,
@@ -73,6 +82,13 @@ export function clearImapCredentials() {
   } catch (_) {}
 }
 
+export function clearAllImapData() {
+  try {
+    localStorage.removeItem(IMAP_STORAGE_KEY);
+    localStorage.removeItem(LAST_APP_PASSWORD_KEY);
+  } catch (_) {}
+}
+
 export class ImapAuthError extends Error {
   isAuthFailed: boolean;
   constructor(message: string) {
@@ -83,10 +99,12 @@ export class ImapAuthError extends Error {
 }
 
 export async function testImapConnection(email: string, appPassword: string): Promise<boolean> {
+  const cleanEmail = sanitizeEmail(email);
+  const cleanPassword = sanitizePassword(appPassword);
   const res = await fetch('/api/imap/connect', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ email, appPassword }),
+    body: JSON.stringify({ email: cleanEmail, appPassword: cleanPassword }),
   });
   const data = await res.json().catch(() => ({}));
   if (!res.ok || !data.success) {
@@ -103,10 +121,12 @@ export async function fetchImapEmails(
   appPassword: string,
   filterTwoDays = true
 ): Promise<ImapEmail[]> {
+  const cleanEmail = sanitizeEmail(email);
+  const cleanPassword = sanitizePassword(appPassword);
   const res = await fetch('/api/imap/emails', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ email, appPassword, filterTwoDays }),
+    body: JSON.stringify({ email: cleanEmail, appPassword: cleanPassword, filterTwoDays }),
   });
   const data = await res.json().catch(() => ({}));
   if (!res.ok || !data.success) {

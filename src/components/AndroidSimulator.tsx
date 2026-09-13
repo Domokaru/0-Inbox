@@ -401,9 +401,16 @@ export default function AndroidSimulator({
           `${now.getHours().toString().padStart(2, '0')}:${now.getMinutes().toString().padStart(2, '0')}`
         );
       } catch (err: any) {
-        console.error('Failed to fetch IMAP emails:', err);
-        const errorMsg = err.message || 'Failed to connect via IMAP';
+        console.warn('IMAP fetch notice:', err?.message || err);
+        const errorMsg =
+          err.message ||
+          'Gmail authentication failed. Please verify your 16-character Google App Password.';
         setAuthError(errorMsg);
+        // Switch cleanly to demo emails so the user can test the UI without being locked out
+        setIsImapMode(false);
+        setIsLiveGmailMode(false);
+        setEmails(INITIAL_DEMO_EMAILS);
+
         // If authentication failed with stored credentials, reopen setup modal to allow user to fix/re-enter App Password
         if (
           err.isAuthFailed ||
@@ -419,6 +426,15 @@ export default function AndroidSimulator({
     },
     [filterTwoDays]
   );
+
+  const handleSwitchToDemo = () => {
+    setIsImapMode(false);
+    setIsLiveGmailMode(false);
+    setAuthError(null);
+    setEmails(INITIAL_DEMO_EMAILS);
+    setBatchCount(1);
+    setHasMore(true);
+  };
 
   // Auto-connect with stored IMAP credentials if available
   useEffect(() => {
@@ -582,18 +598,28 @@ export default function AndroidSimulator({
             DOWN: 'read',
             UP: 'star',
           };
-          performImapAction(creds.email, creds.appPassword, email.uid, actionMap[direction]).catch(console.error);
+          performImapAction(creds.email, creds.appPassword, email.uid, actionMap[direction]).catch(
+            (err) => console.warn('IMAP Action sync notice:', err?.message || err)
+          );
         }
       } else if (accessToken) {
         const threadId = email.threadId || email.id;
         if (direction === 'RIGHT') {
-          archiveGmailThread(accessToken, threadId).catch(console.error);
+          archiveGmailThread(accessToken, threadId).catch((err) =>
+            console.warn('Gmail action notice:', err?.message || err)
+          );
         } else if (direction === 'LEFT') {
-          trashGmailThread(accessToken, threadId).catch(console.error);
+          trashGmailThread(accessToken, threadId).catch((err) =>
+            console.warn('Gmail action notice:', err?.message || err)
+          );
         } else if (direction === 'DOWN') {
-          markGmailThreadRead(accessToken, threadId).catch(console.error);
+          markGmailThreadRead(accessToken, threadId).catch((err) =>
+            console.warn('Gmail action notice:', err?.message || err)
+          );
         } else if (direction === 'UP') {
-          applyNeedsResponseLabel(accessToken, threadId).catch(console.error);
+          applyNeedsResponseLabel(accessToken, threadId).catch((err) =>
+            console.warn('Gmail action notice:', err?.message || err)
+          );
         }
       }
     }
@@ -651,7 +677,9 @@ export default function AndroidSimulator({
     // 2. Perform live Gmail action if connected
     if (emailToLabel.isReal && accessToken) {
       const threadId = emailToLabel.threadId || emailToLabel.id;
-      applyCustomLabelToThread(accessToken, threadId, targetId, markAsReadWithLabel).catch(console.error);
+      applyCustomLabelToThread(accessToken, threadId, targetId, markAsReadWithLabel).catch((err) =>
+        console.warn('Label action notice:', err?.message || err)
+      );
     }
 
     // 3. Remove email locally (triaged to destination label)
@@ -685,21 +713,29 @@ export default function AndroidSimulator({
             creds.appPassword,
             lastAction.email.uid,
             lastAction.direction === 'LEFT' ? 'trash' : 'archive'
-          ).catch(console.error);
+          ).catch((err) => console.warn('IMAP Undo action notice:', err?.message || err));
         }
       } else if (accessToken) {
         const threadId = lastAction.email.threadId || lastAction.email.id;
         if (lastAction.direction === 'RIGHT') {
-          unarchiveGmailThread(accessToken, threadId).catch(console.error);
+          unarchiveGmailThread(accessToken, threadId).catch((err) =>
+            console.warn('Gmail undo notice:', err?.message || err)
+          );
         } else if (lastAction.direction === 'LEFT') {
-          untrashGmailThread(accessToken, threadId).catch(console.error);
+          untrashGmailThread(accessToken, threadId).catch((err) =>
+            console.warn('Gmail undo notice:', err?.message || err)
+          );
         } else if (lastAction.direction === 'DOWN') {
-          markGmailThreadUnread(accessToken, threadId).catch(console.error);
+          markGmailThreadUnread(accessToken, threadId).catch((err) =>
+            console.warn('Gmail undo notice:', err?.message || err)
+          );
         } else if (lastAction.direction === 'UP') {
-          removeNeedsResponseLabel(accessToken, threadId).catch(console.error);
+          removeNeedsResponseLabel(accessToken, threadId).catch((err) =>
+            console.warn('Gmail undo notice:', err?.message || err)
+          );
         } else if (lastAction.customLabelId) {
-          unapplyCustomLabelFromThread(accessToken, threadId, lastAction.customLabelId).catch(
-            console.error
+          unapplyCustomLabelFromThread(accessToken, threadId, lastAction.customLabelId).catch((err) =>
+            console.warn('Gmail undo notice:', err?.message || err)
           );
         }
       }
@@ -740,7 +776,7 @@ export default function AndroidSimulator({
           setHasMore(false);
         }
       } catch (err) {
-        console.error('Failed to fetch more emails:', err);
+        console.warn('Failed to fetch more emails:', err);
       } finally {
         setIsLoadingEmails(false);
       }
@@ -1819,19 +1855,6 @@ export default function AndroidSimulator({
                   <span>Connect Gmail</span>
                 </button>
 
-                {/* Small Help Button on the Login Screen */}
-                <button
-                  onClick={() => {
-                    setHasDismissedLoginPrompt(true);
-                    setShowLoginPrompt(false);
-                    setShowImapModal(true);
-                  }}
-                  className="w-full text-xs text-cyan-400 hover:text-cyan-300 font-semibold flex items-center justify-center gap-1.5 py-1 transition-colors cursor-pointer"
-                >
-                  <HelpCircle size={14} />
-                  <span>How do I get an App Password?</span>
-                </button>
-
                 {/* Fallback for testing UI without login */}
                 <button
                   onClick={() => {
@@ -1858,6 +1881,7 @@ export default function AndroidSimulator({
         isDarkTheme={isDarkTheme}
         initialEmail={connectedImapEmail || currentUser?.email || 'ben.hallauer@gmail.com'}
         initialError={authError}
+        onSwitchToDemo={handleSwitchToDemo}
       />
     </div>
   );

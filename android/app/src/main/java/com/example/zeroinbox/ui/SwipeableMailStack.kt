@@ -1122,57 +1122,6 @@ fun ImapSetupDialog(
     var emailInput by remember(initialEmail) { mutableStateOf(initialEmail) }
     var passwordInput by remember(initialPassword) { mutableStateOf(initialPassword) }
     var passwordVisible by remember { mutableStateOf(false) }
-    var showHelp by remember { mutableStateOf(false) }
-    var showPinDialog by remember { mutableStateOf(false) }
-    var pinInput by remember { mutableStateOf("") }
-
-    if (showPinDialog) {
-        AlertDialog(
-            onDismissRequest = { showPinDialog = false },
-            title = {
-                Text("Security PIN Verification", fontWeight = FontWeight.Bold, fontSize = 16.sp)
-            },
-            text = {
-                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Text(
-                        text = "Enter code 9077 to reveal and copy the unmasked App Password:",
-                        fontSize = 13.sp
-                    )
-                    OutlinedTextField(
-                        value = pinInput,
-                        onValueChange = { if (it.length <= 6) pinInput = it },
-                        label = { Text("PIN Code") },
-                        placeholder = { Text("9077") },
-                        singleLine = true,
-                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                        modifier = Modifier.fillMaxWidth()
-                    )
-                }
-            },
-            confirmButton = {
-                Button(
-                    onClick = {
-                        if (pinInput.trim() == "9077") {
-                            clipboardManager.setText(AnnotatedString(initialPassword))
-                            passwordInput = initialPassword
-                            Toast.makeText(context, "Code verified! Unmasked App Password copied to clipboard.", Toast.LENGTH_LONG).show()
-                            showPinDialog = false
-                        } else {
-                            Toast.makeText(context, "Incorrect code. Access denied.", Toast.LENGTH_SHORT).show()
-                        }
-                    },
-                    colors = ButtonDefaults.buttonColors(containerColor = primaryAccent)
-                ) {
-                    Text("COPY UNMASKED", color = Color.Black, fontWeight = FontWeight.Bold)
-                }
-            },
-            dismissButton = {
-                TextButton(onClick = { showPinDialog = false }) {
-                    Text("CANCEL")
-                }
-            }
-        )
-    }
 
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -1243,37 +1192,48 @@ fun ImapSetupDialog(
                 // Stored Last Used App Password
                 if (initialPassword.isNotBlank()) {
                     Card(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .pointerInput(Unit) {
-                                detectTapGestures(
-                                    onLongPress = {
-                                        pinInput = ""
-                                        showPinDialog = true
-                                    }
-                                )
-                            },
+                        modifier = Modifier.fillMaxWidth(),
                         colors = CardDefaults.cardColors(
                             containerColor = if (isDarkTheme) Color(0xFF131722) else Color(0xFFEFF6FF)
                         ),
                         border = BorderStroke(1.dp, primaryAccent.copy(alpha = 0.35f)),
                         shape = RoundedCornerShape(8.dp)
                     ) {
-                        Column(modifier = Modifier.padding(8.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                            Text(
-                                text = "LAST USED APP PASSWORD (DEVICE STORED)",
-                                fontSize = 9.5.sp,
-                                fontWeight = FontWeight.Bold,
-                                color = primaryAccent
-                            )
-                            Text(
-                                text = "•••• •••• •••• ••••",
-                                fontSize = 13.sp,
-                                fontFamily = FontFamily.Monospace,
-                                fontWeight = FontWeight.Bold,
-                                letterSpacing = 2.sp,
-                                color = if (isDarkTheme) Color.LightGray else Color.DarkGray
-                            )
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(10.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                                Text(
+                                    text = "SAVED APP PASSWORD",
+                                    fontSize = 9.5.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = primaryAccent
+                                )
+                                Text(
+                                    text = "•••• •••• •••• ••••",
+                                    fontSize = 13.sp,
+                                    fontFamily = FontFamily.Monospace,
+                                    fontWeight = FontWeight.Bold,
+                                    letterSpacing = 2.sp,
+                                    color = if (isDarkTheme) Color.LightGray else Color.DarkGray
+                                )
+                            }
+                            TextButton(
+                                onClick = {
+                                    clipboardManager.setText(AnnotatedString(initialPassword))
+                                    passwordInput = initialPassword
+                                    Toast.makeText(context, "Copied saved App Password to clipboard!", Toast.LENGTH_SHORT).show()
+                                },
+                                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp)
+                            ) {
+                                Icon(Icons.Default.ContentCopy, contentDescription = null, tint = primaryAccent, modifier = Modifier.size(14.dp))
+                                Spacer(modifier = Modifier.width(4.dp))
+                                Text("COPY", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = primaryAccent)
+                            }
                         }
                     }
                 }

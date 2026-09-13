@@ -22,6 +22,9 @@ import {
   getLastUsedAppPassword,
   saveLastUsedAppPassword,
   getStoredImapCredentials,
+  clearAllImapData,
+  sanitizePassword,
+  sanitizeEmail,
 } from '../services/imapService';
 
 interface ImapSetupModalProps {
@@ -31,6 +34,7 @@ interface ImapSetupModalProps {
   isDarkTheme?: boolean;
   initialEmail?: string;
   initialError?: string | null;
+  onSwitchToDemo?: () => void;
 }
 
 export default function ImapSetupModal({
@@ -40,6 +44,7 @@ export default function ImapSetupModal({
   isDarkTheme = true,
   initialEmail = '',
   initialError = null,
+  onSwitchToDemo,
 }: ImapSetupModalProps) {
   const rememberedCreds = getStoredImapCredentials();
   const lastUsedStoredPass = getLastUsedAppPassword();
@@ -154,10 +159,19 @@ export default function ImapSetupModal({
     }
   };
 
+  const handleClearCredentials = () => {
+    clearAllImapData();
+    setAppPassword('');
+    setLastUsedPass(null);
+    setErrorMessage(null);
+    setSuccessToast('Stored credentials cleared from device.');
+    setTimeout(() => setSuccessToast(null), 3000);
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    const cleanEmail = email.trim();
-    const cleanPass = appPassword.trim().replace(/\s+/g, '');
+    const cleanEmail = sanitizeEmail(email);
+    const cleanPass = sanitizePassword(appPassword);
 
     if (!cleanEmail) {
       setErrorMessage('Please enter your Gmail address');
@@ -191,6 +205,13 @@ export default function ImapSetupModal({
       setIsLoading(false);
     }
   };
+
+  const isAuthError =
+    errorMessage &&
+    (errorMessage.toLowerCase().includes('authentication') ||
+      errorMessage.toLowerCase().includes('credential') ||
+      errorMessage.toLowerCase().includes('password') ||
+      errorMessage.toLowerCase().includes('failed'));
 
   return (
     <div className="fixed inset-0 z-[120] flex items-center justify-center p-4 bg-black/75 backdrop-blur-sm animate-fade-in">
@@ -242,6 +263,13 @@ export default function ImapSetupModal({
               >
                 Last Used App Password (Device Stored)
               </span>
+              <button
+                type="button"
+                onClick={handleClearCredentials}
+                className="text-[10px] text-red-400 hover:text-red-300 underline cursor-pointer"
+              >
+                Clear Stored
+              </button>
             </div>
 
             <div
@@ -287,17 +315,81 @@ export default function ImapSetupModal({
           </div>
         )}
 
-        {/* Error Feedback */}
+        {/* Error Feedback with Guided Resolution */}
         {errorMessage && (
           <div
-            className={`p-3 rounded-xl mb-4 border text-xs leading-relaxed flex items-start gap-2.5 ${
+            className={`p-3.5 rounded-2xl mb-4 border text-xs leading-relaxed space-y-2.5 animate-fade-in ${
               isDarkTheme
-                ? 'bg-red-950/40 border-red-500/40 text-red-300'
-                : 'bg-red-50 border-red-200 text-red-700'
+                ? 'bg-red-950/30 border-red-500/40 text-red-200'
+                : 'bg-red-50 border-red-200 text-red-800'
             }`}
           >
-            <AlertCircle className="w-4 h-4 shrink-0 text-red-500 mt-0.5" />
-            <div>{errorMessage}</div>
+            <div className="flex items-start gap-2.5">
+              <AlertCircle className="w-4 h-4 shrink-0 text-red-400 mt-0.5" />
+              <div className="font-medium">{errorMessage}</div>
+            </div>
+
+            {isAuthError && (
+              <div
+                className={`p-2.5 rounded-xl border text-[11px] space-y-1.5 ${
+                  isDarkTheme ? 'bg-black/30 border-red-500/20' : 'bg-white/80 border-red-200'
+                }`}
+              >
+                <div className="font-bold text-cyan-400 flex items-center gap-1">
+                  <HelpCircle className="w-3.5 h-3.5" />
+                  How to fix Gmail Authentication:
+                </div>
+                <ol className="list-decimal list-inside space-y-1 text-gray-300">
+                  <li>
+                    Modern Gmail <strong>requires a 16-character App Password</strong> (your standard account password will be rejected).
+                  </li>
+                  <li>
+                    Generate one at{' '}
+                    <a
+                      href="https://myaccount.google.com/apppasswords"
+                      target="_blank"
+                      rel="noreferrer"
+                      className="text-cyan-400 underline inline-flex items-center gap-0.5 hover:text-cyan-300"
+                    >
+                      Google App Passwords <ExternalLink className="w-3 h-3" />
+                    </a>
+                  </li>
+                  <li>
+                    Verify IMAP is enabled in{' '}
+                    <a
+                      href="https://mail.google.com/mail/u/0/#settings/fwdandpop"
+                      target="_blank"
+                      rel="noreferrer"
+                      className="text-cyan-400 underline inline-flex items-center gap-0.5 hover:text-cyan-300"
+                    >
+                      Gmail Forwarding/IMAP Settings <ExternalLink className="w-3 h-3" />
+                    </a>
+                  </li>
+                </ol>
+
+                <div className="flex items-center gap-2 pt-1.5">
+                  {onSwitchToDemo && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        onSwitchToDemo();
+                        onClose();
+                      }}
+                      className="px-2.5 py-1 rounded-lg bg-cyan-500/20 hover:bg-cyan-500/30 text-cyan-300 font-semibold text-[11px] border border-cyan-500/40 transition-colors cursor-pointer"
+                    >
+                      Switch to Demo Mode
+                    </button>
+                  )}
+                  <button
+                    type="button"
+                    onClick={handleClearCredentials}
+                    className="px-2.5 py-1 rounded-lg bg-red-500/20 hover:bg-red-500/30 text-red-300 font-semibold text-[11px] border border-red-500/40 transition-colors cursor-pointer"
+                  >
+                    Clear Bad Credentials
+                  </button>
+                </div>
+              </div>
+            )}
           </div>
         )}
 
@@ -330,13 +422,23 @@ export default function ImapSetupModal({
 
           {/* App Password Input */}
           <div>
-            <label
-              className={`block text-xs font-semibold uppercase tracking-wider mb-1.5 ${
-                isDarkTheme ? 'text-gray-300' : 'text-slate-700'
-              }`}
-            >
-              App Password
-            </label>
+            <div className="flex items-center justify-between mb-1.5">
+              <label
+                className={`block text-xs font-semibold uppercase tracking-wider ${
+                  isDarkTheme ? 'text-gray-300' : 'text-slate-700'
+                }`}
+              >
+                16-Character App Password
+              </label>
+              <a
+                href="https://myaccount.google.com/apppasswords"
+                target="_blank"
+                rel="noreferrer"
+                className="text-[11px] text-cyan-400 hover:text-cyan-300 underline inline-flex items-center gap-1"
+              >
+                Create one <ExternalLink className="w-3 h-3" />
+              </a>
+            </div>
             <div className="relative">
               <input
                 type={showPassword ? 'text' : 'password'}
@@ -360,6 +462,9 @@ export default function ImapSetupModal({
                 {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
               </button>
             </div>
+            <p className={`text-[11px] mt-1.5 ${isDarkTheme ? 'text-gray-400' : 'text-slate-500'}`}>
+              Spaces are automatically ignored. Standard Google account passwords will not work.
+            </p>
           </div>
 
           {/* Remember on this device Checkbox */}
@@ -412,6 +517,24 @@ export default function ImapSetupModal({
               )}
             </button>
           </div>
+
+          {/* Demo Mode Quick Access */}
+          {onSwitchToDemo && (
+            <div className="pt-2 text-center">
+              <button
+                type="button"
+                onClick={() => {
+                  onSwitchToDemo();
+                  onClose();
+                }}
+                className={`text-xs underline cursor-pointer transition-colors ${
+                  isDarkTheme ? 'text-gray-400 hover:text-cyan-400' : 'text-slate-500 hover:text-cyan-600'
+                }`}
+              >
+                Don't have an App Password right now? Continue with Demo Mode
+              </button>
+            </div>
+          )}
         </form>
       </div>
 
