@@ -157,7 +157,21 @@ app.post('/api/imap/emails', async (req, res) => {
     }
   } catch (err: any) {
     console.error('IMAP Fetch emails error:', err);
-    return res.status(500).json({ success: false, error: err.message || 'Failed to fetch emails' });
+    const isAuthFailed =
+      err.authenticationFailed ||
+      err.serverResponseCode === 'AUTHENTICATIONFAILED' ||
+      (err.message && (err.message.includes('AUTHENTICATIONFAILED') || err.message.includes('Invalid credentials') || err.message.includes('Command failed')));
+    
+    const statusCode = isAuthFailed ? 401 : 500;
+    const errorMessage = isAuthFailed
+      ? 'Gmail authentication failed. Your 16-character Google App Password may be incorrect, expired, or revoked. Please verify your App Password.'
+      : (err.message || 'Failed to fetch emails');
+
+    return res.status(statusCode).json({
+      success: false,
+      authenticationFailed: !!isAuthFailed,
+      error: errorMessage,
+    });
   } finally {
     try {
       await client.logout();

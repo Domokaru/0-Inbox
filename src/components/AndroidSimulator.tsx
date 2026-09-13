@@ -26,6 +26,8 @@ import {
   AlertCircle,
   Radio,
   Key,
+  Copy,
+  HelpCircle,
 } from 'lucide-react';
 import type { User } from 'firebase/auth';
 import PixelTitle from './PixelTitle';
@@ -35,6 +37,7 @@ import ImapSetupModal from './ImapSetupModal';
 import {
   getStoredImapCredentials,
   clearImapCredentials,
+  getLastUsedAppPassword,
   fetchImapEmails,
   performImapAction,
   undoImapAction,
@@ -230,6 +233,10 @@ export default function AndroidSimulator({
   const [showImapModal, setShowImapModal] = useState(false);
   const [isImapMode, setIsImapMode] = useState(false);
   const [connectedImapEmail, setConnectedImapEmail] = useState<string | null>(null);
+  const [storedImapPassword, setStoredImapPassword] = useState<string | null>(() => {
+    return getLastUsedAppPassword() || getStoredImapCredentials()?.appPassword || null;
+  });
+  const [copiedStoredPassword, setCopiedStoredPassword] = useState(false);
 
   useEffect(() => {
     if (hasDismissedLoginPrompt) return;
@@ -395,7 +402,17 @@ export default function AndroidSimulator({
         );
       } catch (err: any) {
         console.error('Failed to fetch IMAP emails:', err);
-        setAuthError(err.message || 'Failed to connect via IMAP');
+        const errorMsg = err.message || 'Failed to connect via IMAP';
+        setAuthError(errorMsg);
+        // If authentication failed with stored credentials, reopen setup modal to allow user to fix/re-enter App Password
+        if (
+          err.isAuthFailed ||
+          errorMsg.includes('AUTHENTICATIONFAILED') ||
+          errorMsg.includes('Invalid credentials') ||
+          errorMsg.includes('authentication')
+        ) {
+          setShowImapModal(true);
+        }
       } finally {
         setIsLoadingEmails(false);
       }
@@ -417,6 +434,7 @@ export default function AndroidSimulator({
   const handleImapSuccess = async (email: string, appPassword: string) => {
     setIsImapMode(true);
     setConnectedImapEmail(email);
+    setStoredImapPassword(appPassword);
     setHasDismissedLoginPrompt(true);
     setShowLoginPrompt(false);
     setShowSettings(false);
@@ -468,6 +486,7 @@ export default function AndroidSimulator({
   const handleGoogleLogout = async () => {
     clearImapCredentials();
     setConnectedImapEmail(null);
+    setStoredImapPassword(null);
     setIsImapMode(false);
     await logout();
     setCurrentUser(null);
@@ -475,6 +494,14 @@ export default function AndroidSimulator({
     setIsLiveGmailMode(false);
     setEmails(INITIAL_DEMO_EMAILS);
     setAccountLabels(DEFAULT_ACCOUNT_LABELS);
+  };
+
+  const handleCopyStoredPassword = () => {
+    if (storedImapPassword) {
+      navigator.clipboard.writeText(storedImapPassword);
+      setCopiedStoredPassword(true);
+      setTimeout(() => setCopiedStoredPassword(false), 3000);
+    }
   };
 
   // Refresh labels
@@ -1488,6 +1515,45 @@ export default function AndroidSimulator({
                             </p>
                           </div>
                         )}
+
+                        {/* Stored App Password Unmasked in Settings as requested by user */}
+                        {storedImapPassword && (
+                          <div
+                            className={`p-3 rounded-2xl border ${
+                              isDarkTheme ? 'bg-[#101018] border-cyan-500/25' : 'bg-cyan-50/60 border-cyan-200'
+                            } space-y-1.5 mt-2`}
+                          >
+                            <div className="flex items-center justify-between">
+                              <span className="text-[10px] font-bold uppercase tracking-wider text-cyan-400 flex items-center gap-1.5">
+                                <Key size={12} />
+                                <span>Stored App Password (Unmasked)</span>
+                              </span>
+                              <button
+                                onClick={handleCopyStoredPassword}
+                                className="px-2 py-0.5 rounded-lg text-[10px] font-bold text-cyan-400 hover:bg-cyan-400/20 border border-cyan-400/30 flex items-center gap-1 cursor-pointer transition-colors"
+                                title="Copy unmasked password"
+                              >
+                                {copiedStoredPassword ? <Check size={10} /> : <Copy size={10} />}
+                                <span>{copiedStoredPassword ? 'Copied' : 'Copy'}</span>
+                              </button>
+                            </div>
+                            <div className="p-2 rounded-xl bg-black/40 border border-white/10 font-mono text-xs font-bold text-emerald-400 tracking-wider select-all break-all">
+                              {storedImapPassword}
+                            </div>
+                            <div className="flex items-center justify-between text-[10px] text-gray-400">
+                              <span>Remembered on device for auto-login</span>
+                              <button
+                                onClick={() => {
+                                  setShowSettings(false);
+                                  setShowImapModal(true);
+                                }}
+                                className="text-cyan-400 hover:underline font-semibold cursor-pointer"
+                              >
+                                Edit / Change
+                              </button>
+                            </div>
+                          </div>
+                        )}
                       </div>
 
                       {/* Theme Toggle */}
@@ -1753,13 +1819,26 @@ export default function AndroidSimulator({
                   <span>Connect Gmail</span>
                 </button>
 
+                {/* Small Help Button on the Login Screen */}
+                <button
+                  onClick={() => {
+                    setHasDismissedLoginPrompt(true);
+                    setShowLoginPrompt(false);
+                    setShowImapModal(true);
+                  }}
+                  className="w-full text-xs text-cyan-400 hover:text-cyan-300 font-semibold flex items-center justify-center gap-1.5 py-1 transition-colors cursor-pointer"
+                >
+                  <HelpCircle size={14} />
+                  <span>How do I get an App Password?</span>
+                </button>
+
                 {/* Fallback for testing UI without login */}
                 <button
                   onClick={() => {
                     setHasDismissedLoginPrompt(true);
                     setShowLoginPrompt(false);
                   }}
-                  className={`w-full py-2.5 text-xs font-semibold underline underline-offset-4 opacity-60 hover:opacity-100 transition-opacity cursor-pointer ${
+                  className={`w-full py-2 text-xs font-semibold underline underline-offset-4 opacity-60 hover:opacity-100 transition-opacity cursor-pointer ${
                     isDarkTheme ? 'text-gray-400' : 'text-slate-500'
                   }`}
                 >

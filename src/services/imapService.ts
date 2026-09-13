@@ -13,6 +13,7 @@ export interface ImapEmail {
 }
 
 const IMAP_STORAGE_KEY = 'zero_inbox_imap_creds';
+const LAST_APP_PASSWORD_KEY = 'zero_inbox_last_app_password';
 
 export interface StoredCredentials {
   email: string;
@@ -29,20 +30,56 @@ export function getStoredImapCredentials(): StoredCredentials | null {
   }
 }
 
+export function getLastUsedAppPassword(): string | null {
+  try {
+    const direct = localStorage.getItem(LAST_APP_PASSWORD_KEY);
+    if (direct) return direct;
+    const creds = getStoredImapCredentials();
+    return creds?.appPassword || null;
+  } catch (_) {
+    return null;
+  }
+}
+
+export function saveLastUsedAppPassword(appPassword: string) {
+  const cleanPassword = (appPassword || '').replace(/[\s-]+/g, '').trim();
+  if (cleanPassword) {
+    try {
+      localStorage.setItem(LAST_APP_PASSWORD_KEY, cleanPassword);
+    } catch (_) {}
+  }
+}
+
 export function saveImapCredentials(email: string, appPassword: string) {
   const cleanPassword = (appPassword || '').replace(/[\s-]+/g, '').trim();
   let cleanEmail = (email || '').trim();
   if (cleanEmail && !cleanEmail.includes('@')) {
     cleanEmail = `${cleanEmail}@gmail.com`;
   }
-  localStorage.setItem(
-    IMAP_STORAGE_KEY,
-    JSON.stringify({ email: cleanEmail, appPassword: cleanPassword })
-  );
+  try {
+    localStorage.setItem(
+      IMAP_STORAGE_KEY,
+      JSON.stringify({ email: cleanEmail, appPassword: cleanPassword })
+    );
+    if (cleanPassword) {
+      localStorage.setItem(LAST_APP_PASSWORD_KEY, cleanPassword);
+    }
+  } catch (_) {}
 }
 
 export function clearImapCredentials() {
-  localStorage.removeItem(IMAP_STORAGE_KEY);
+  try {
+    localStorage.removeItem(IMAP_STORAGE_KEY);
+  } catch (_) {}
+}
+
+export class ImapAuthError extends Error {
+  isAuthFailed: boolean;
+  constructor(message: string) {
+    super(message);
+    this.name = 'ImapAuthError';
+    this.isAuthFailed = true;
+  }
 }
 
 export async function testImapConnection(email: string, appPassword: string): Promise<boolean> {
@@ -51,8 +88,11 @@ export async function testImapConnection(email: string, appPassword: string): Pr
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ email, appPassword }),
   });
-  const data = await res.json();
+  const data = await res.json().catch(() => ({}));
   if (!res.ok || !data.success) {
+    if (res.status === 401 || data.authenticationFailed) {
+      throw new ImapAuthError(data.error || 'Invalid credentials or App Password.');
+    }
     throw new Error(data.error || 'Failed to connect to Gmail IMAP');
   }
   return true;
@@ -68,8 +108,11 @@ export async function fetchImapEmails(
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ email, appPassword, filterTwoDays }),
   });
-  const data = await res.json();
+  const data = await res.json().catch(() => ({}));
   if (!res.ok || !data.success) {
+    if (res.status === 401 || data.authenticationFailed) {
+      throw new ImapAuthError(data.error || 'Invalid credentials or App Password.');
+    }
     throw new Error(data.error || 'Failed to fetch emails via IMAP');
   }
   return data.emails || [];

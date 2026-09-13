@@ -9,31 +9,61 @@ import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.AccountCircle
 import androidx.compose.material.icons.filled.Archive
+import androidx.compose.material.icons.filled.ArrowDropDown
+import androidx.compose.material.icons.filled.Key
+import androidx.compose.material.icons.filled.Lock
+import android.widget.Toast
+import android.content.Intent
+import android.net.Uri
+import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Drafts
 import androidx.compose.material.icons.filled.Edit
-import androidx.compose.material.icons.filled.Label
-import androidx.compose.material.icons.filled.DriveFileMove
+import androidx.compose.material.icons.filled.Email
+import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Refresh
-import androidx.compose.material.icons.filled.Check
-import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.filled.Warning
+import androidx.compose.material.icons.filled.KeyboardArrowUp
+import androidx.compose.material.icons.filled.KeyboardArrowDown
+import androidx.compose.material.icons.automirrored.filled.KeyboardArrowLeft
+import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
+import androidx.compose.material.icons.automirrored.filled.ExitToApp
+import androidx.compose.material.icons.automirrored.filled.Label
+import androidx.compose.material.icons.automirrored.filled.DriveFileMove
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalClipboardManager
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.ui.text.input.VisualTransformation
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -49,18 +79,27 @@ import kotlin.math.abs
 fun SwipeableMailStack(
     viewModel: MailViewModel,
     isDarkTheme: Boolean = true,
-    onToggleTheme: (Boolean) -> Unit = {}
+    savedEmail: String = "",
+    savedAppPassword: String = "",
+    onSaveImapCredentials: (String, String) -> Unit = { _, _ -> },
+    onToggleTheme: (Boolean) -> Unit = {},
+    onSignOut: () -> Unit = {}
 ) {
     val emails by viewModel.emails.collectAsState()
     val isLoading by viewModel.isLoading.collectAsState()
     val hasMore by viewModel.hasMore.collectAsState()
     val labels by viewModel.labels.collectAsState()
     val isRefreshingLabels by viewModel.isRefreshingLabels.collectAsState()
+    val currentAccount by viewModel.currentAccount.collectAsState()
+    val isDemoMode by viewModel.isDemoMode.collectAsState()
+    val filterTwoDays by viewModel.filterTwoDays.collectAsState()
+    val errorMessage by viewModel.errorMessage.collectAsState()
 
     val coroutineScope = rememberCoroutineScope()
     val snackbarHostState = remember { SnackbarHostState() }
     var activePopup by remember { mutableStateOf<PopupAction?>(null) }
     var showSettingsDialog by remember { mutableStateOf(false) }
+    var showImapSetupDialog by remember { mutableStateOf(false) }
     var emailForLabelDialog by remember { mutableStateOf<EmailModel?>(null) }
 
     // Theme-derived palette
@@ -69,7 +108,7 @@ fun SwipeableMailStack(
     val cardSurface = if (isDarkTheme) Color(0xFF15151A) else Color(0xFFF8FAFC)
     val primaryAccent = if (isDarkTheme) Color(0xFF00FFFF) else Color(0xFF0EA5E9)   // Cyan / Pastel Cyan
     val secondaryAccent = if (isDarkTheme) Color(0xFFFF00FF) else Color(0xFFEC4899) // Magenta / Pastel Rose
-    val tertiaryAccent = if (isDarkTheme) Color(0xFF007BFF) else Color(0xFF3B82F6)  // Electric Blue / Pastel Blue
+    val tertiaryAccent = if (isDarkTheme) Color(0xFF4D9FFF) else Color(0xFF2563EB)  // Neon Lighter Blue (not teal or aqua)
 
     Box(
         modifier = Modifier
@@ -77,13 +116,13 @@ fun SwipeableMailStack(
             .background(backgroundColor),
         contentAlignment = Alignment.Center
     ) {
-        // Top App Header: Pixelated "0 INBOX" with Slashed Zero and Double-Tap Detection for Settings
-        Box(
+        // Top App Header: Pixelated "0 INBOX" with Slashed Zero and Account Status
+        Column(
             modifier = Modifier
                 .align(Alignment.TopCenter)
                 .fillMaxWidth()
-                .padding(top = 20.dp, start = 20.dp, end = 20.dp),
-            contentAlignment = Alignment.Center
+                .padding(top = 18.dp, start = 16.dp, end = 16.dp),
+            horizontalAlignment = Alignment.CenterHorizontally
         ) {
             Box(
                 modifier = Modifier
@@ -92,10 +131,13 @@ fun SwipeableMailStack(
                         detectTapGestures(
                             onDoubleTap = {
                                 showSettingsDialog = true
+                            },
+                            onTap = {
+                                showSettingsDialog = true
                             }
                         )
                     }
-                    .padding(horizontal = 16.dp, vertical = 8.dp)
+                    .padding(horizontal = 12.dp, vertical = 4.dp)
             ) {
                 PixelZeroInboxLogo(
                     zeroColor = primaryAccent,
@@ -103,83 +145,423 @@ fun SwipeableMailStack(
                     pixelSizeDp = 3.5f
                 )
             }
-        }
 
-        // Empty state when all emails are triaged: Big pixelated 0 in center
-        if (emails.isEmpty() && !isLoading) {
-            Column(
-                modifier = Modifier
-                    .align(Alignment.Center)
-                    .padding(horizontal = 24.dp),
-                horizontalAlignment = Alignment.CenterHorizontally
-            ) {
-                BigPixelZero(
-                    color = primaryAccent,
-                    pixelSizeDp = 16f
-                )
-                Spacer(modifier = Modifier.height(18.dp))
-                Text(
-                    text = "0 INBOX ACHIEVED!",
-                    color = secondaryAccent,
-                    fontSize = 18.sp,
-                    fontWeight = FontWeight.Black,
-                    letterSpacing = 2.sp
-                )
-                Spacer(modifier = Modifier.height(6.dp))
-                Text(
-                    text = "All emails triaged • 0 unread",
-                    color = if (isDarkTheme) Color(0xFFAAAAAA) else Color(0xFF64748B),
-                    fontSize = 12.sp
-                )
+            // Active Account / Demo Indicator Chip
+            if (currentAccount != null || isDemoMode) {
+                Surface(
+                    shape = RoundedCornerShape(16.dp),
+                    color = if (isDarkTheme) Color(0xFF1E1E28) else Color(0xFFF1F5F9),
+                    border = BorderStroke(1.dp, tertiaryAccent.copy(alpha = 0.5f)),
+                    modifier = Modifier.padding(top = 4.dp).clickable { showSettingsDialog = true }
+                ) {
+                    Row(
+                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .size(7.dp)
+                                .background(if (isDemoMode) secondaryAccent else Color(0xFF10B981), CircleShape)
+                        )
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text(
+                            text = if (isDemoMode) "⚡ DEMO MODE" else (currentAccount ?: ""),
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Medium,
+                            color = textColor.copy(alpha = 0.85f)
+                        )
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Icon(
+                            imageVector = Icons.Default.ArrowDropDown,
+                            contentDescription = "Account Settings",
+                            tint = tertiaryAccent,
+                            modifier = Modifier.size(16.dp)
+                        )
+                    }
+                }
             }
         }
 
-        // Informational card at the bottom of the stack
-        if (hasMore) {
-            InfoCard(
-                isDarkTheme = isDarkTheme,
-                borderColor = tertiaryAccent,
-                onClick = { viewModel.loadNextBatch() }
-            )
+        // Error message notification banner
+        errorMessage?.let { error ->
+            Card(
+                modifier = Modifier
+                    .align(Alignment.TopCenter)
+                    .padding(top = 80.dp, start = 16.dp, end = 16.dp)
+                    .fillMaxWidth(),
+                colors = CardDefaults.cardColors(
+                    containerColor = if (isDarkTheme) Color(0xFF2C1518) else Color(0xFFFEE2E2)
+                ),
+                border = BorderStroke(1.dp, Color(0xFFEF4444)),
+                shape = RoundedCornerShape(12.dp)
+            ) {
+                Row(
+                    modifier = Modifier.padding(10.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Warning,
+                        contentDescription = null,
+                        tint = Color(0xFFEF4444),
+                        modifier = Modifier.size(18.dp)
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text(
+                        text = error,
+                        fontSize = 11.sp,
+                        color = if (isDarkTheme) Color(0xFFFCA5A5) else Color(0xFF991B1B),
+                        modifier = Modifier.weight(1f)
+                    )
+                    Spacer(modifier = Modifier.width(4.dp))
+                    OutlinedButton(
+                        onClick = { showImapSetupDialog = true },
+                        contentPadding = PaddingValues(horizontal = 6.dp, vertical = 2.dp),
+                        border = BorderStroke(1.dp, Color(0xFFEF4444).copy(alpha = 0.5f)),
+                        shape = RoundedCornerShape(6.dp)
+                    ) {
+                        Text(
+                            text = "LOGIN",
+                            fontSize = 10.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = Color(0xFFEF4444)
+                        )
+                    }
+                    Spacer(modifier = Modifier.width(4.dp))
+                    TextButton(
+                        onClick = {
+                            viewModel.clearError()
+                            viewModel.retryAuth()
+                        },
+                        contentPadding = PaddingValues(horizontal = 6.dp, vertical = 2.dp)
+                    ) {
+                        Text(
+                            text = if (error.contains("permission", ignoreCase = true) || error.contains("consent", ignoreCase = true)) "GRANT" else "RETRY",
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = Color(0xFFEF4444)
+                        )
+                    }
+                }
+            }
         }
 
-        // Active Email Tinder Cards
-        emails.forEachIndexed { index, email ->
-            val isTopCard = index == emails.lastIndex
-            EmailCard(
-                email = email,
-                isTopCard = isTopCard,
-                isDarkTheme = isDarkTheme,
-                cardSurface = cardSurface,
-                borderColor = secondaryAccent,
-                senderColor = primaryAccent,
-                onSwiped = { direction ->
-                    showPopupAndClear(direction, isDarkTheme) { activePopup = it }
-                    viewModel.processEmailSwipe(email, direction)
-
-                    val actionLabel = when (direction) {
-                        SwipeDirection.RIGHT -> "Archived"
-                        SwipeDirection.LEFT -> "Deleted"
-                        SwipeDirection.UP -> "Marked 'Needs Response'"
-                        SwipeDirection.DOWN -> "Marked as read"
-                    }
-
-                    coroutineScope.launch {
-                        snackbarHostState.currentSnackbarData?.dismiss()
-                        val result = snackbarHostState.showSnackbar(
-                            message = "$actionLabel email from ${email.sender}",
-                            actionLabel = "UNDO",
-                            duration = SnackbarDuration.Short
+        // Connect Gmail Account Screen when neither account nor demo is chosen
+        if (currentAccount == null && !isDemoMode) {
+            Card(
+                modifier = Modifier
+                    .fillMaxWidth(0.9f)
+                    .padding(horizontal = 20.dp)
+                    .border(2.dp, primaryAccent, RoundedCornerShape(20.dp)),
+                shape = RoundedCornerShape(20.dp),
+                colors = CardDefaults.cardColors(
+                    containerColor = cardSurface
+                )
+            ) {
+                Column(
+                    modifier = Modifier.padding(24.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .size(56.dp)
+                            .background(primaryAccent.copy(alpha = 0.15f), CircleShape)
+                            .border(1.5.dp, primaryAccent, CircleShape),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Email,
+                            contentDescription = null,
+                            tint = primaryAccent,
+                            modifier = Modifier.size(28.dp)
                         )
-                        if (result == SnackbarResult.ActionPerformed) {
-                            viewModel.undoLastAction()
-                        }
                     }
-                },
-                onLongPress = {
-                    emailForLabelDialog = email
+                    Spacer(modifier = Modifier.height(14.dp))
+                    Text(
+                        text = "CONNECT GMAIL",
+                        fontSize = 18.sp,
+                        fontWeight = FontWeight.Black,
+                        letterSpacing = 1.5.sp,
+                        color = textColor
+                    )
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Text(
+                        text = "Connect your Gmail account via secure App Password to triage your Gmail inbox with 4-way gesture swipes.",
+                        fontSize = 12.5.sp,
+                        color = if (isDarkTheme) Color(0xFFAAAAAA) else Color(0xFF64748B),
+                        textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                        lineHeight = 17.sp
+                    )
+                    Spacer(modifier = Modifier.height(20.dp))
+                    Button(
+                        onClick = { showImapSetupDialog = true },
+                        modifier = Modifier.fillMaxWidth().height(48.dp),
+                        shape = RoundedCornerShape(12.dp),
+                        colors = ButtonDefaults.buttonColors(containerColor = primaryAccent)
+                    ) {
+                        Icon(Icons.Default.Email, contentDescription = null, tint = Color.Black, modifier = Modifier.size(20.dp))
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(
+                            text = "CONNECT GMAIL (APP PASSWORD)",
+                            color = Color.Black,
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 13.sp
+                        )
+                    }
+                    Spacer(modifier = Modifier.height(12.dp))
+                    TextButton(
+                        onClick = { viewModel.enableDemoMode() },
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Text(
+                            text = "TRY DEMO MODE (SAMPLE INBOX)",
+                            color = tertiaryAccent,
+                            fontWeight = FontWeight.SemiBold,
+                            fontSize = 12.sp
+                        )
+                    }
                 }
+            }
+        }
+
+        // Only display triage stack, info card, and bottom action bar when an account is connected or in demo mode
+        if (currentAccount != null || isDemoMode) {
+            // Empty state when all emails are triaged: Big pixelated 0 in center
+            if (emails.isEmpty() && !isLoading) {
+                Column(
+                    modifier = Modifier
+                        .align(Alignment.Center)
+                        .padding(horizontal = 24.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally
+                ) {
+                    BigPixelZero(
+                        color = primaryAccent,
+                        pixelSizeDp = 16f
+                    )
+                    Spacer(modifier = Modifier.height(18.dp))
+                    Text(
+                        text = "0 INBOX ACHIEVED!",
+                        color = secondaryAccent,
+                        fontSize = 18.sp,
+                        fontWeight = FontWeight.Black,
+                        letterSpacing = 2.sp
+                    )
+                    Spacer(modifier = Modifier.height(6.dp))
+                    Text(
+                        text = "All emails triaged • 0 unread",
+                        color = if (isDarkTheme) Color(0xFFAAAAAA) else Color(0xFF64748B),
+                        fontSize = 12.sp
+                    )
+                }
+            }
+
+            // Informational card at the bottom of the stack
+            if (hasMore) {
+                InfoCard(
+                    isDarkTheme = isDarkTheme,
+                    borderColor = tertiaryAccent,
+                    onClick = { viewModel.loadNextBatch() }
+                )
+            }
+
+            // Active Email Tinder Cards
+            emails.forEachIndexed { index, email ->
+                val isTopCard = index == emails.lastIndex
+                EmailCard(
+                    email = email,
+                    isTopCard = isTopCard,
+                    isDarkTheme = isDarkTheme,
+                    cardSurface = cardSurface,
+                    borderColor = secondaryAccent,
+                    senderColor = primaryAccent,
+                    onSwiped = { direction ->
+                        if (direction != SwipeDirection.LEFT) {
+                            showPopupAndClear(direction, isDarkTheme, coroutineScope) { activePopup = it }
+                        }
+                        viewModel.processEmailSwipe(email, direction)
+
+                        val actionLabel = when (direction) {
+                            SwipeDirection.RIGHT -> "Archived"
+                            SwipeDirection.LEFT -> "Deleted"
+                            SwipeDirection.UP -> "Marked 'Needs Response'"
+                            SwipeDirection.DOWN -> "Marked as read"
+                        }
+
+                        coroutineScope.launch {
+                            snackbarHostState.currentSnackbarData?.dismiss()
+                            val result = snackbarHostState.showSnackbar(
+                                message = "$actionLabel email from ${email.sender}",
+                                actionLabel = "UNDO",
+                                duration = SnackbarDuration.Short
+                            )
+                            if (result == SnackbarResult.ActionPerformed) {
+                                viewModel.undoLastAction()
+                            }
+                        }
+                    },
+                    onLongPress = {
+                        emailForLabelDialog = email
+                    }
+                )
+            }
+
+            // Small text indicating unread emails in inbox: under cards, above bottom icons
+            Text(
+                text = if (emails.isEmpty()) "0 emails unread in inbox" else "${emails.size} emails unread in inbox",
+                fontSize = 12.sp,
+                fontWeight = FontWeight.Medium,
+                color = if (emails.isEmpty()) primaryAccent else (if (isDarkTheme) Color(0xFFAAAAAA) else Color(0xFF64748B)),
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .padding(bottom = 128.dp)
             )
+
+            // Bottom Action Bar: 5 quick-action buttons including Custom Label
+            Row(
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .padding(bottom = 76.dp)
+                    .fillMaxWidth(0.92f),
+                horizontalArrangement = Arrangement.SpaceEvenly,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                // 1. Pen icon (Needs Update) - Neon Green
+                val penColor = if (isDarkTheme) Color(0xFF39FF14) else Color(0xFF22C55E)
+                IconButton(
+                    onClick = {
+                        if (emails.isNotEmpty()) {
+                            val email = emails.last()
+                            showPopupAndClear(SwipeDirection.UP, isDarkTheme, coroutineScope) { activePopup = it }
+                            viewModel.processEmailSwipe(email, SwipeDirection.UP)
+                        }
+                    },
+                    modifier = Modifier
+                        .size(42.dp)
+                        .background(penColor.copy(alpha = 0.15f), CircleShape)
+                        .border(1.dp, penColor.copy(alpha = 0.4f), CircleShape)
+                ) {
+                    Box(modifier = Modifier.fillMaxSize()) {
+                        Icon(
+                            Icons.Default.KeyboardArrowUp,
+                            contentDescription = null,
+                            tint = penColor.copy(alpha = 0.7f),
+                            modifier = Modifier.align(Alignment.TopCenter).padding(top = 2.dp).size(14.dp)
+                        )
+                        Icon(
+                            Icons.Default.Edit, 
+                            contentDescription = "Needs Update", 
+                            tint = penColor,
+                            modifier = Modifier.align(Alignment.Center)
+                        )
+                    }
+                }
+
+                // 2. Read icon (Mark Read)
+                IconButton(
+                    onClick = {
+                        if (emails.isNotEmpty()) {
+                            val email = emails.last()
+                            showPopupAndClear(SwipeDirection.DOWN, isDarkTheme, coroutineScope) { activePopup = it }
+                            viewModel.processEmailSwipe(email, SwipeDirection.DOWN)
+                        }
+                    },
+                    modifier = Modifier
+                        .size(42.dp)
+                        .background(if (isDarkTheme) Color(0x224D9FFF) else Color(0x152563EB), CircleShape)
+                        .border(1.dp, if (isDarkTheme) Color(0x664D9FFF) else Color(0x442563EB), CircleShape)
+                ) {
+                    Box(modifier = Modifier.fillMaxSize()) {
+                        Icon(
+                            Icons.Default.KeyboardArrowDown,
+                            contentDescription = null,
+                            tint = tertiaryAccent.copy(alpha = 0.7f),
+                            modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = 2.dp).size(14.dp)
+                        )
+                        Icon(
+                            Icons.Default.Drafts, 
+                            contentDescription = "Mark Read", 
+                            tint = tertiaryAccent,
+                            modifier = Modifier.align(Alignment.Center)
+                        )
+                    }
+                }
+
+                // 3. Trash icon (Delete) - Remove confirmation popup (showPopupAndClear)
+                IconButton(
+                    onClick = {
+                        if (emails.isNotEmpty()) {
+                            val email = emails.last()
+                            // Skipping showPopupAndClear for delete to remove confirmation popup
+                            viewModel.processEmailSwipe(email, SwipeDirection.LEFT)
+                        }
+                    },
+                    modifier = Modifier
+                        .size(42.dp)
+                        .background(if (isDarkTheme) Color(0x22FF3366) else Color(0x15EF4444), CircleShape)
+                        .border(1.dp, if (isDarkTheme) Color(0x66FF3366) else Color(0x44EF4444), CircleShape)
+                ) {
+                    val trashTint = if (isDarkTheme) Color(0xFFFF3366) else Color(0xFFEF4444)
+                    Box(modifier = Modifier.fillMaxSize()) {
+                        Icon(
+                            Icons.AutoMirrored.Filled.KeyboardArrowLeft,
+                            contentDescription = null,
+                            tint = trashTint.copy(alpha = 0.7f),
+                            modifier = Modifier.align(Alignment.CenterStart).padding(start = 2.dp).size(14.dp)
+                        )
+                        Icon(
+                            Icons.Default.Delete, 
+                            contentDescription = "Delete", 
+                            tint = trashTint,
+                            modifier = Modifier.align(Alignment.Center)
+                        )
+                    }
+                }
+
+                // 4. Archive icon (Archive)
+                IconButton(
+                    onClick = {
+                        if (emails.isNotEmpty()) {
+                            val email = emails.last()
+                            showPopupAndClear(SwipeDirection.RIGHT, isDarkTheme, coroutineScope) { activePopup = it }
+                            viewModel.processEmailSwipe(email, SwipeDirection.RIGHT)
+                        }
+                    },
+                    modifier = Modifier
+                        .size(42.dp)
+                        .background(if (isDarkTheme) Color(0x2200FFFF) else Color(0x150EA5E9), CircleShape)
+                        .border(1.dp, primaryAccent.copy(alpha = 0.4f), CircleShape)
+                ) {
+                    Box(modifier = Modifier.fillMaxSize()) {
+                        Icon(
+                            Icons.AutoMirrored.Filled.KeyboardArrowRight,
+                            contentDescription = null,
+                            tint = primaryAccent.copy(alpha = 0.7f),
+                            modifier = Modifier.align(Alignment.CenterEnd).padding(end = 2.dp).size(14.dp)
+                        )
+                        Icon(
+                            Icons.Default.Archive, 
+                            contentDescription = "Archive", 
+                            tint = primaryAccent,
+                            modifier = Modifier.align(Alignment.Center)
+                        )
+                    }
+                }
+
+                // 5. Label icon (Assign Custom Label) - Neon Purple, similar border
+                val labelColor = if (isDarkTheme) Color(0xFFB026FF) else Color(0xFFC026D3)
+                IconButton(
+                    onClick = {
+                        if (emails.isNotEmpty()) {
+                            emailForLabelDialog = emails.last()
+                        }
+                    },
+                    modifier = Modifier
+                        .size(42.dp)
+                        .background(labelColor.copy(alpha = 0.15f), CircleShape)
+                        .border(1.dp, labelColor.copy(alpha = 0.4f), CircleShape)
+                ) {
+                    Icon(Icons.AutoMirrored.Filled.DriveFileMove, contentDescription = "Assign Gmail Label", tint = labelColor)
+                }
+            }
         }
 
         if (isLoading) {
@@ -196,116 +578,13 @@ fun SwipeableMailStack(
             NeonIconOnlyPopup(popup = popup)
         }
 
-        // Small text indicating unread emails in inbox: under cards, above bottom icons
-        Text(
-            text = if (emails.isEmpty()) "0 emails unread in inbox" else "${emails.size} emails unread in inbox",
-            fontSize = 12.sp,
-            fontWeight = FontWeight.Medium,
-            color = if (emails.isEmpty()) primaryAccent else (if (isDarkTheme) Color(0xFFAAAAAA) else Color(0xFF64748B)),
-            modifier = Modifier
-                .align(Alignment.BottomCenter)
-                .padding(bottom = 128.dp)
-        )
-
-        // Bottom Action Bar: 5 quick-action buttons including Custom Label (No Swipe required)
-        Row(
-            modifier = Modifier
-                .align(Alignment.BottomCenter)
-                .padding(bottom = 76.dp)
-                .fillMaxWidth(0.92f),
-            horizontalArrangement = Arrangement.SpaceEvenly,
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            // 1. Delete (Left)
-            IconButton(
-                onClick = {
-                    if (emails.isNotEmpty()) {
-                        val email = emails.last()
-                        showPopupAndClear(SwipeDirection.LEFT, isDarkTheme) { activePopup = it }
-                        viewModel.processEmailSwipe(email, SwipeDirection.LEFT)
-                    }
-                },
-                modifier = Modifier
-                    .size(42.dp)
-                    .background(if (isDarkTheme) Color(0x22FF3366) else Color(0x15EF4444), CircleShape)
-                    .border(1.dp, if (isDarkTheme) Color(0x66FF3366) else Color(0x44EF4444), CircleShape)
-            ) {
-                Icon(Icons.Default.Delete, contentDescription = "Delete", tint = if (isDarkTheme) Color(0xFFFF3366) else Color(0xFFEF4444))
-            }
-
-            // 2. Needs Update (Up)
-            IconButton(
-                onClick = {
-                    if (emails.isNotEmpty()) {
-                        val email = emails.last()
-                        showPopupAndClear(SwipeDirection.UP, isDarkTheme) { activePopup = it }
-                        viewModel.processEmailSwipe(email, SwipeDirection.UP)
-                    }
-                },
-                modifier = Modifier
-                    .size(42.dp)
-                    .background(if (isDarkTheme) Color(0x22FF00FF) else Color(0x15EC4899), CircleShape)
-                    .border(1.dp, if (isDarkTheme) Color(0x66FF00FF) else Color(0x44EC4899), CircleShape)
-            ) {
-                Icon(Icons.Default.Edit, contentDescription = "Needs Update", tint = secondaryAccent)
-            }
-
-            // 3. Mark Read (Down) - Neon Lighter Blue (not teal or aqua)
-            IconButton(
-                onClick = {
-                    if (emails.isNotEmpty()) {
-                        val email = emails.last()
-                        showPopupAndClear(SwipeDirection.DOWN, isDarkTheme) { activePopup = it }
-                        viewModel.processEmailSwipe(email, SwipeDirection.DOWN)
-                    }
-                },
-                modifier = Modifier
-                    .size(42.dp)
-                    .background(if (isDarkTheme) Color(0x224D9FFF) else Color(0x152563EB), CircleShape)
-                    .border(1.dp, if (isDarkTheme) Color(0x664D9FFF) else Color(0x442563EB), CircleShape)
-            ) {
-                Icon(Icons.Default.Drafts, contentDescription = "Mark Read", tint = if (isDarkTheme) Color(0xFF4D9FFF) else Color(0xFF2563EB))
-            }
-
-            // 3. Assign Custom Label (NO SWIPE ACTIVITY - Long press or tap button opens Gmail labels dialog)
-            IconButton(
-                onClick = {
-                    if (emails.isNotEmpty()) {
-                        emailForLabelDialog = emails.last()
-                    }
-                },
-                modifier = Modifier
-                    .size(48.dp)
-                    .background(if (isDarkTheme) Color(0x3300FFFF) else Color(0x220EA5E9), CircleShape)
-                    .border(2.dp, primaryAccent, CircleShape)
-            ) {
-                Icon(Icons.Default.DriveFileMove, contentDescription = "Assign Gmail Label", tint = primaryAccent)
-            }
-
-            // 4. Archive (Right)
-            IconButton(
-                onClick = {
-                    if (emails.isNotEmpty()) {
-                        val email = emails.last()
-                        showPopupAndClear(SwipeDirection.RIGHT, isDarkTheme) { activePopup = it }
-                        viewModel.processEmailSwipe(email, SwipeDirection.RIGHT)
-                    }
-                },
-                modifier = Modifier
-                    .size(42.dp)
-                    .background(if (isDarkTheme) Color(0x2200FFFF) else Color(0x150EA5E9), CircleShape)
-                    .border(1.dp, primaryAccent.copy(alpha = 0.4f), CircleShape)
-            ) {
-                Icon(Icons.Default.Archive, contentDescription = "Archive", tint = primaryAccent)
-            }
-        }
-
         // Material 3 Neon / Pastel Snackbar with Undo Button
         SnackbarHost(
             hostState = snackbarHostState,
             modifier = Modifier
                 .align(Alignment.BottomCenter)
                 .padding(bottom = 20.dp, start = 16.dp, end = 16.dp)
+                .scale(0.9f)
         ) { data ->
             Snackbar(
                 snackbarData = data,
@@ -322,6 +601,20 @@ fun SwipeableMailStack(
             )
         }
 
+        // IMAP & App Password Setup Dialog
+        if (showImapSetupDialog) {
+            ImapSetupDialog(
+                isDarkTheme = isDarkTheme,
+                primaryAccent = primaryAccent,
+                initialEmail = savedEmail.ifBlank { currentAccount ?: "" },
+                initialPassword = savedAppPassword,
+                onDismiss = { showImapSetupDialog = false },
+                onSaveCredentials = { email, pass ->
+                    onSaveImapCredentials(email, pass)
+                }
+            )
+        }
+
         // Label Selection Dialog (triggered by Long-Pressing card OR tapping bottom Label button)
         emailForLabelDialog?.let { targetEmail ->
             LabelSelectionDialog(
@@ -330,13 +623,12 @@ fun SwipeableMailStack(
                 isRefreshing = isRefreshingLabels,
                 isDarkTheme = isDarkTheme,
                 primaryAccent = primaryAccent,
-                secondaryAccent = secondaryAccent,
                 onRefresh = { viewModel.refreshLabels() },
                 onSelectLabel = { chosenLabel ->
                     emailForLabelDialog = null
                     // 1. Show Screen-Centered Popup (Icon only, zero words)
                     coroutineScope.launch {
-                        activePopup = PopupAction(icon = Icons.Default.DriveFileMove, color = primaryAccent)
+                        activePopup = PopupAction(icon = Icons.AutoMirrored.Filled.DriveFileMove, color = primaryAccent)
                         delay(700)
                         activePopup = null
                     }
@@ -359,11 +651,33 @@ fun SwipeableMailStack(
             )
         }
 
-        // Settings Dialog (triggered by double tapping "0 INBOX")
+        // Settings Dialog (triggered by tapping "0 INBOX" header or Account chip)
         if (showSettingsDialog) {
             SettingsDialog(
+                currentAccount = currentAccount,
+                savedAppPassword = savedAppPassword,
+                isDemoMode = isDemoMode,
                 isDarkTheme = isDarkTheme,
+                filterTwoDays = filterTwoDays,
+                primaryAccent = primaryAccent,
                 onToggleTheme = onToggleTheme,
+                onToggleFilter = { viewModel.setFilterTwoDays(it) },
+                onSwitchAccount = {
+                    showSettingsDialog = false
+                    showImapSetupDialog = true
+                },
+                onShowSetupHelp = {
+                    showSettingsDialog = false
+                    showImapSetupDialog = true
+                },
+                onEnableDemoMode = {
+                    showSettingsDialog = false
+                    viewModel.enableDemoMode()
+                },
+                onSignOut = {
+                    showSettingsDialog = false
+                    onSignOut()
+                },
                 onDismiss = { showSettingsDialog = false }
             )
         }
@@ -554,6 +868,7 @@ fun NeonIconOnlyPopup(popup: PopupAction) {
 private fun showPopupAndClear(
     direction: SwipeDirection,
     isDarkTheme: Boolean,
+    coroutineScope: kotlinx.coroutines.CoroutineScope,
     setPopup: (PopupAction?) -> Unit
 ) {
     val (icon, color) = when (direction) {
@@ -575,7 +890,7 @@ private fun showPopupAndClear(
         )
     }
 
-    kotlinx.coroutines.GlobalScope.launch {
+    coroutineScope.launch {
         setPopup(PopupAction(icon, color))
         delay(700) // Strictly less than 1 second
         setPopup(null)
@@ -584,21 +899,157 @@ private fun showPopupAndClear(
 
 @Composable
 fun SettingsDialog(
+    currentAccount: String?,
+    savedAppPassword: String = "",
+    isDemoMode: Boolean,
     isDarkTheme: Boolean,
+    filterTwoDays: Boolean,
+    primaryAccent: Color,
     onToggleTheme: (Boolean) -> Unit,
+    onToggleFilter: (Boolean) -> Unit,
+    onSwitchAccount: () -> Unit,
+    onShowSetupHelp: () -> Unit,
+    onEnableDemoMode: () -> Unit,
+    onSignOut: () -> Unit,
     onDismiss: () -> Unit
 ) {
+    val context = LocalContext.current
+    val clipboardManager = LocalClipboardManager.current
+
     AlertDialog(
         onDismissRequest = onDismiss,
         title = {
             Text(
-                text = "Settings",
+                text = "Settings & Accounts",
                 fontWeight = FontWeight.Bold,
                 fontSize = 20.sp
             )
         },
         text = {
             Column(modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp)) {
+                // Current Account Status
+                Text(
+                    text = "CURRENT ACCOUNT",
+                    fontSize = 11.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    letterSpacing = 1.sp
+                )
+                Spacer(modifier = Modifier.height(4.dp))
+                Text(
+                    text = when {
+                        isDemoMode -> "Demo Mode (Sample Inbox)"
+                        currentAccount != null -> currentAccount
+                        else -> "No Account Connected"
+                    },
+                    fontSize = 14.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    color = primaryAccent
+                )
+
+                // Stored App Password Unmasked in Settings Menu
+                if (savedAppPassword.isNotBlank()) {
+                    Spacer(modifier = Modifier.height(10.dp))
+                    Card(
+                        modifier = Modifier.fillMaxWidth(),
+                        colors = CardDefaults.cardColors(
+                            containerColor = if (isDarkTheme) Color(0xFF131722) else Color(0xFFEFF6FF)
+                        ),
+                        border = BorderStroke(1.dp, primaryAccent.copy(alpha = 0.4f)),
+                        shape = RoundedCornerShape(10.dp)
+                    ) {
+                        Column(modifier = Modifier.padding(10.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text(
+                                    text = "STORED APP PASSWORD (UNMASKED)",
+                                    fontSize = 10.5.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = primaryAccent
+                                )
+                                TextButton(
+                                    onClick = {
+                                        clipboardManager.setText(AnnotatedString(savedAppPassword))
+                                        Toast.makeText(context, "Copied unmasked App Password!", Toast.LENGTH_SHORT).show()
+                                    },
+                                    contentPadding = PaddingValues(horizontal = 6.dp, vertical = 0.dp)
+                                ) {
+                                    Icon(Icons.Default.ContentCopy, contentDescription = null, tint = primaryAccent, modifier = Modifier.size(12.dp))
+                                    Spacer(modifier = Modifier.width(4.dp))
+                                    Text("COPY", fontSize = 10.5.sp, fontWeight = FontWeight.Bold, color = primaryAccent)
+                                }
+                            }
+                            Text(
+                                text = savedAppPassword,
+                                fontSize = 13.sp,
+                                fontFamily = FontFamily.Monospace,
+                                fontWeight = FontWeight.Bold,
+                                color = if (isDarkTheme) Color(0xFF34D399) else Color(0xFF059669)
+                            )
+                            Text(
+                                text = "Saved on this device for automatic login.",
+                                fontSize = 10.sp,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(16.dp))
+
+                // Account Actions
+                Button(
+                    onClick = onSwitchAccount,
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(10.dp),
+                    colors = ButtonDefaults.buttonColors(containerColor = primaryAccent)
+                ) {
+                    Icon(Icons.Default.AccountCircle, contentDescription = null, tint = Color.Black, modifier = Modifier.size(16.dp))
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text("Connect / Switch Gmail", color = Color.Black, fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                }
+
+                Spacer(modifier = Modifier.height(8.dp))
+
+                OutlinedButton(
+                    onClick = onShowSetupHelp,
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(10.dp),
+                    border = BorderStroke(1.dp, primaryAccent)
+                ) {
+                    Icon(Icons.Default.Key, contentDescription = null, tint = primaryAccent, modifier = Modifier.size(14.dp))
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text("IMAP & App Password Setup", color = primaryAccent, fontWeight = FontWeight.SemiBold, fontSize = 12.sp)
+                }
+
+                Spacer(modifier = Modifier.height(8.dp))
+
+                OutlinedButton(
+                    onClick = onEnableDemoMode,
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(10.dp)
+                ) {
+                    Text("Try Demo Mode", fontWeight = FontWeight.SemiBold, fontSize = 12.sp)
+                }
+
+                if (currentAccount != null || isDemoMode) {
+                    Spacer(modifier = Modifier.height(8.dp))
+                    TextButton(
+                        onClick = onSignOut,
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Icon(Icons.AutoMirrored.Filled.ExitToApp, contentDescription = null, tint = Color(0xFFEF4444), modifier = Modifier.size(16.dp))
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text("Disconnect / Sign Out", color = Color(0xFFEF4444), fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(16.dp))
+
+                // Dark / Light Theme Toggle
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.SpaceBetween,
@@ -608,10 +1059,10 @@ fun SettingsDialog(
                         Text(
                             text = "Dark Theme",
                             fontWeight = FontWeight.SemiBold,
-                            fontSize = 16.sp
+                            fontSize = 15.sp
                         )
                         Text(
-                            text = if (isDarkTheme) "Neon Palette on Dark Canvas" else "Pastel Palette on White Canvas",
+                            text = if (isDarkTheme) "Neon on Dark" else "Pastel on Light",
                             fontSize = 12.sp,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
@@ -621,11 +1072,334 @@ fun SettingsDialog(
                         onCheckedChange = { onToggleTheme(it) }
                     )
                 }
+
+                Spacer(modifier = Modifier.height(16.dp))
+
+                // Last 2 Days Toggle
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = "Filter Emails",
+                            fontWeight = FontWeight.SemiBold,
+                            fontSize = 15.sp
+                        )
+                        Text(
+                            text = if (filterTwoDays) "Last 2 Days" else "All Inbox Mail",
+                            fontSize = 12.sp,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                    Switch(
+                        checked = filterTwoDays,
+                        onCheckedChange = { onToggleFilter(it) }
+                    )
+                }
             }
         },
         confirmButton = {
             TextButton(onClick = onDismiss) {
                 Text("DONE", fontWeight = FontWeight.Bold)
+            }
+        }
+    )
+}
+
+@Composable
+fun ImapSetupDialog(
+    isDarkTheme: Boolean,
+    primaryAccent: Color,
+    initialEmail: String = "",
+    initialPassword: String = "",
+    onDismiss: () -> Unit,
+    onSaveCredentials: (String, String) -> Unit
+) {
+    val context = LocalContext.current
+    val clipboardManager = LocalClipboardManager.current
+    var emailInput by remember(initialEmail) { mutableStateOf(initialEmail) }
+    var passwordInput by remember(initialPassword) { mutableStateOf(initialPassword) }
+    var passwordVisible by remember { mutableStateOf(false) }
+    var showHelp by remember { mutableStateOf(false) }
+    var showPinDialog by remember { mutableStateOf(false) }
+    var pinInput by remember { mutableStateOf("") }
+
+    if (showPinDialog) {
+        AlertDialog(
+            onDismissRequest = { showPinDialog = false },
+            title = {
+                Text("Security PIN Verification", fontWeight = FontWeight.Bold, fontSize = 16.sp)
+            },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text(
+                        text = "Enter code 9077 to reveal and copy the unmasked App Password:",
+                        fontSize = 13.sp
+                    )
+                    OutlinedTextField(
+                        value = pinInput,
+                        onValueChange = { if (it.length <= 6) pinInput = it },
+                        label = { Text("PIN Code") },
+                        placeholder = { Text("9077") },
+                        singleLine = true,
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                }
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        if (pinInput.trim() == "9077") {
+                            clipboardManager.setText(AnnotatedString(initialPassword))
+                            passwordInput = initialPassword
+                            Toast.makeText(context, "Code verified! Unmasked App Password copied to clipboard.", Toast.LENGTH_LONG).show()
+                            showPinDialog = false
+                        } else {
+                            Toast.makeText(context, "Incorrect code. Access denied.", Toast.LENGTH_SHORT).show()
+                        }
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = primaryAccent)
+                ) {
+                    Text("COPY UNMASKED", color = Color.Black, fontWeight = FontWeight.Bold)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showPinDialog = false }) {
+                    Text("CANCEL")
+                }
+            }
+        )
+    }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(
+                        imageVector = Icons.Default.Email,
+                        contentDescription = null,
+                        tint = primaryAccent,
+                        modifier = Modifier.size(24.dp)
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text(
+                        text = "Connect Gmail",
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 17.sp
+                    )
+                }
+                // Small Help button on login screen
+                TextButton(
+                    onClick = { showHelp = !showHelp },
+                    contentPadding = PaddingValues(horizontal = 6.dp, vertical = 2.dp)
+                ) {
+                    Icon(Icons.Default.Info, contentDescription = null, tint = primaryAccent, modifier = Modifier.size(13.dp))
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Text(
+                        text = if (showHelp) "Hide Help" else "How to get",
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = primaryAccent
+                    )
+                }
+            }
+        },
+        text = {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .verticalScroll(rememberScrollState())
+                    .padding(vertical = 4.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                // Info Banner explaining App Password
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = CardDefaults.cardColors(
+                        containerColor = if (isDarkTheme) Color(0xFF161622) else Color(0xFFF1F5F9)
+                    ),
+                    border = BorderStroke(1.dp, primaryAccent.copy(alpha = 0.5f)),
+                    shape = RoundedCornerShape(10.dp)
+                ) {
+                    Column(modifier = Modifier.padding(10.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(
+                                imageVector = Icons.Default.Lock,
+                                contentDescription = null,
+                                tint = primaryAccent,
+                                modifier = Modifier.size(16.dp)
+                            )
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text(
+                                text = "GMAIL APP PASSWORD REQUIRED",
+                                fontSize = 11.5.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = primaryAccent
+                            )
+                        }
+                        Text(
+                            text = "To bypass OAuth restrictions, Google allows direct IMAP connections via a 16-character App Password generated in your Google Account.",
+                            fontSize = 11.sp,
+                            lineHeight = 15.sp,
+                            color = if (isDarkTheme) Color(0xFFAAAAAA) else Color(0xFF475569)
+                        )
+                    }
+                }
+
+                // Email Input Field
+                OutlinedTextField(
+                    value = emailInput,
+                    onValueChange = { emailInput = it },
+                    label = { Text("Gmail Address", fontSize = 12.sp) },
+                    placeholder = { Text("example@gmail.com", fontSize = 12.sp) },
+                    leadingIcon = {
+                        Icon(Icons.Default.Email, contentDescription = null, tint = primaryAccent, modifier = Modifier.size(18.dp))
+                    },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth()
+                )
+
+                // Password Input Field
+                OutlinedTextField(
+                    value = passwordInput,
+                    onValueChange = { passwordInput = it },
+                    label = { Text("16-character App Password", fontSize = 12.sp) },
+                    placeholder = { Text("abcd efgh ijkl mnop", fontSize = 12.sp) },
+                    leadingIcon = {
+                        Icon(Icons.Default.Key, contentDescription = null, tint = primaryAccent, modifier = Modifier.size(18.dp))
+                    },
+                    trailingIcon = {
+                        IconButton(onClick = { passwordVisible = !passwordVisible }) {
+                            Icon(
+                                imageVector = if (passwordVisible) Icons.Default.Lock else Icons.Default.Key,
+                                contentDescription = if (passwordVisible) "Hide password" else "Show password",
+                                modifier = Modifier.size(18.dp)
+                            )
+                        }
+                    },
+                    visualTransformation = if (passwordVisible) VisualTransformation.None else PasswordVisualTransformation(),
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth()
+                )
+
+                // Expandable Help Guide Dropdown
+                if (showHelp) {
+                    Card(
+                        modifier = Modifier.fillMaxWidth(),
+                        colors = CardDefaults.cardColors(
+                            containerColor = if (isDarkTheme) Color(0xFF1B1B24) else Color(0xFFF8FAFC)
+                        ),
+                        border = BorderStroke(1.dp, primaryAccent.copy(alpha = 0.3f)),
+                        shape = RoundedCornerShape(10.dp)
+                    ) {
+                        Column(modifier = Modifier.padding(10.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                            // Stored Last Used App Password moved inside Help dropdown
+                            if (initialPassword.isNotBlank()) {
+                                Card(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .pointerInput(Unit) {
+                                            detectTapGestures(
+                                                onLongPress = {
+                                                    pinInput = ""
+                                                    showPinDialog = true
+                                                }
+                                            )
+                                        },
+                                    colors = CardDefaults.cardColors(
+                                        containerColor = if (isDarkTheme) Color(0xFF131722) else Color(0xFFEFF6FF)
+                                    ),
+                                    border = BorderStroke(1.dp, primaryAccent.copy(alpha = 0.35f)),
+                                    shape = RoundedCornerShape(8.dp)
+                                ) {
+                                    Column(modifier = Modifier.padding(8.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                                        Text(
+                                            text = "LAST USED APP PASSWORD (DEVICE STORED)",
+                                            fontSize = 9.5.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            color = primaryAccent
+                                        )
+                                        Text(
+                                            text = "•••• •••• •••• ••••",
+                                            fontSize = 13.sp,
+                                            fontFamily = FontFamily.Monospace,
+                                            fontWeight = FontWeight.Bold,
+                                            letterSpacing = 2.sp,
+                                            color = if (isDarkTheme) Color.LightGray else Color.DarkGray
+                                        )
+                                    }
+                                }
+                                Spacer(modifier = Modifier.height(2.dp))
+                            }
+
+                            Text(
+                                "HOW TO GET AN APP PASSWORD",
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = primaryAccent
+                            )
+                            Text(
+                                "1. Go to Google Account > Security (2-Step Verification must be ON).",
+                                fontSize = 11.sp
+                            )
+                            Text(
+                                "2. Search for 'App passwords' or tap the button below.",
+                                fontSize = 11.sp
+                            )
+                            Text(
+                                "3. Create a new password named 'Zero Inbox' and paste the 16 characters above.",
+                                fontSize = 11.sp
+                            )
+
+                            Spacer(modifier = Modifier.height(2.dp))
+
+                            OutlinedButton(
+                                onClick = {
+                                    val intent = Intent(Intent.ACTION_VIEW, Uri.parse("https://myaccount.google.com/apppasswords"))
+                                    context.startActivity(intent)
+                                },
+                                modifier = Modifier.fillMaxWidth().height(34.dp),
+                                shape = RoundedCornerShape(6.dp),
+                                border = BorderStroke(1.dp, primaryAccent),
+                                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp)
+                            ) {
+                                Icon(Icons.Default.AccountCircle, contentDescription = null, tint = primaryAccent, modifier = Modifier.size(14.dp))
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text("OPEN GOOGLE APP PASSWORDS", fontSize = 10.5.sp, color = primaryAccent, fontWeight = FontWeight.Bold)
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text("CANCEL")
+            }
+        },
+        confirmButton = {
+            Button(
+                onClick = {
+                    val email = emailInput.trim()
+                    val pass = passwordInput.trim()
+                    if (email.isBlank() || pass.isBlank()) {
+                        Toast.makeText(context, "Please enter your Gmail and App Password", Toast.LENGTH_SHORT).show()
+                    } else {
+                        onSaveCredentials(email, pass)
+                        onDismiss()
+                    }
+                },
+                colors = ButtonDefaults.buttonColors(containerColor = primaryAccent)
+            ) {
+                Text("CONNECT GMAIL", color = Color.Black, fontWeight = FontWeight.Bold, fontSize = 12.sp)
             }
         }
     )
@@ -639,7 +1413,6 @@ fun LabelSelectionDialog(
     isRefreshing: Boolean,
     isDarkTheme: Boolean,
     primaryAccent: Color,
-    secondaryAccent: Color,
     onRefresh: () -> Unit,
     onSelectLabel: (LabelModel) -> Unit,
     onDismiss: () -> Unit
@@ -663,7 +1436,7 @@ fun LabelSelectionDialog(
             ) {
                 Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.weight(1f)) {
                     Icon(
-                        imageVector = Icons.Default.DriveFileMove,
+                        imageVector = Icons.AutoMirrored.Filled.DriveFileMove,
                         contentDescription = null,
                         tint = primaryAccent,
                         modifier = Modifier.size(24.dp)
@@ -747,7 +1520,7 @@ fun LabelSelectionDialog(
                                 color = if (selectedLabel != null) (if (isDarkTheme) Color.White else Color.Black) else Color.Gray
                             )
                             Icon(
-                                imageVector = Icons.Default.Label,
+                                imageVector = Icons.AutoMirrored.Filled.Label,
                                 contentDescription = null,
                                 tint = primaryAccent,
                                 modifier = Modifier.size(18.dp)

@@ -42,6 +42,7 @@ class MainActivity : ComponentActivity() {
                         viewModel = viewModel,
                         isDarkTheme = isDarkTheme,
                         savedEmail = imapAuthManager.getEmail() ?: "",
+                        savedAppPassword = imapAuthManager.getAppPassword() ?: "",
                         onSaveImapCredentials = { email, appPassword ->
                             imapAuthManager.saveCredentials(email, appPassword)
                             viewModel.setAccount(email)

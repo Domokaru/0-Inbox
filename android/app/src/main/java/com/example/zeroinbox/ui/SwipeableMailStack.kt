@@ -58,8 +58,12 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.ui.text.input.VisualTransformation
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -76,6 +80,7 @@ fun SwipeableMailStack(
     viewModel: MailViewModel,
     isDarkTheme: Boolean = true,
     savedEmail: String = "",
+    savedAppPassword: String = "",
     onSaveImapCredentials: (String, String) -> Unit = { _, _ -> },
     onToggleTheme: (Boolean) -> Unit = {},
     onSignOut: () -> Unit = {}
@@ -602,6 +607,7 @@ fun SwipeableMailStack(
                 isDarkTheme = isDarkTheme,
                 primaryAccent = primaryAccent,
                 initialEmail = savedEmail.ifBlank { currentAccount ?: "" },
+                initialPassword = savedAppPassword,
                 onDismiss = { showImapSetupDialog = false },
                 onSaveCredentials = { email, pass ->
                     onSaveImapCredentials(email, pass)
@@ -649,6 +655,7 @@ fun SwipeableMailStack(
         if (showSettingsDialog) {
             SettingsDialog(
                 currentAccount = currentAccount,
+                savedAppPassword = savedAppPassword,
                 isDemoMode = isDemoMode,
                 isDarkTheme = isDarkTheme,
                 filterTwoDays = filterTwoDays,
@@ -893,6 +900,7 @@ private fun showPopupAndClear(
 @Composable
 fun SettingsDialog(
     currentAccount: String?,
+    savedAppPassword: String = "",
     isDemoMode: Boolean,
     isDarkTheme: Boolean,
     filterTwoDays: Boolean,
@@ -905,6 +913,9 @@ fun SettingsDialog(
     onSignOut: () -> Unit,
     onDismiss: () -> Unit
 ) {
+    val context = LocalContext.current
+    val clipboardManager = LocalClipboardManager.current
+
     AlertDialog(
         onDismissRequest = onDismiss,
         title = {
@@ -935,6 +946,57 @@ fun SettingsDialog(
                     fontWeight = FontWeight.SemiBold,
                     color = primaryAccent
                 )
+
+                // Stored App Password Unmasked in Settings Menu
+                if (savedAppPassword.isNotBlank()) {
+                    Spacer(modifier = Modifier.height(10.dp))
+                    Card(
+                        modifier = Modifier.fillMaxWidth(),
+                        colors = CardDefaults.cardColors(
+                            containerColor = if (isDarkTheme) Color(0xFF131722) else Color(0xFFEFF6FF)
+                        ),
+                        border = BorderStroke(1.dp, primaryAccent.copy(alpha = 0.4f)),
+                        shape = RoundedCornerShape(10.dp)
+                    ) {
+                        Column(modifier = Modifier.padding(10.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text(
+                                    text = "STORED APP PASSWORD (UNMASKED)",
+                                    fontSize = 10.5.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = primaryAccent
+                                )
+                                TextButton(
+                                    onClick = {
+                                        clipboardManager.setText(AnnotatedString(savedAppPassword))
+                                        Toast.makeText(context, "Copied unmasked App Password!", Toast.LENGTH_SHORT).show()
+                                    },
+                                    contentPadding = PaddingValues(horizontal = 6.dp, vertical = 0.dp)
+                                ) {
+                                    Icon(Icons.Default.ContentCopy, contentDescription = null, tint = primaryAccent, modifier = Modifier.size(12.dp))
+                                    Spacer(modifier = Modifier.width(4.dp))
+                                    Text("COPY", fontSize = 10.5.sp, fontWeight = FontWeight.Bold, color = primaryAccent)
+                                }
+                            }
+                            Text(
+                                text = savedAppPassword,
+                                fontSize = 13.sp,
+                                fontFamily = FontFamily.Monospace,
+                                fontWeight = FontWeight.Bold,
+                                color = if (isDarkTheme) Color(0xFF34D399) else Color(0xFF059669)
+                            )
+                            Text(
+                                text = "Saved on this device for automatic login.",
+                                fontSize = 10.sp,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    }
+                }
 
                 Spacer(modifier = Modifier.height(16.dp))
 
@@ -1051,30 +1113,103 @@ fun ImapSetupDialog(
     isDarkTheme: Boolean,
     primaryAccent: Color,
     initialEmail: String = "",
+    initialPassword: String = "",
     onDismiss: () -> Unit,
     onSaveCredentials: (String, String) -> Unit
 ) {
     val context = LocalContext.current
+    val clipboardManager = LocalClipboardManager.current
     var emailInput by remember(initialEmail) { mutableStateOf(initialEmail) }
-    var passwordInput by remember { mutableStateOf("") }
+    var passwordInput by remember(initialPassword) { mutableStateOf(initialPassword) }
     var passwordVisible by remember { mutableStateOf(false) }
+    var showHelp by remember { mutableStateOf(false) }
+    var showPinDialog by remember { mutableStateOf(false) }
+    var pinInput by remember { mutableStateOf("") }
+
+    if (showPinDialog) {
+        AlertDialog(
+            onDismissRequest = { showPinDialog = false },
+            title = {
+                Text("Security PIN Verification", fontWeight = FontWeight.Bold, fontSize = 16.sp)
+            },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text(
+                        text = "Enter code 9077 to reveal and copy the unmasked App Password:",
+                        fontSize = 13.sp
+                    )
+                    OutlinedTextField(
+                        value = pinInput,
+                        onValueChange = { if (it.length <= 6) pinInput = it },
+                        label = { Text("PIN Code") },
+                        placeholder = { Text("9077") },
+                        singleLine = true,
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                }
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        if (pinInput.trim() == "9077") {
+                            clipboardManager.setText(AnnotatedString(initialPassword))
+                            passwordInput = initialPassword
+                            Toast.makeText(context, "Code verified! Unmasked App Password copied to clipboard.", Toast.LENGTH_LONG).show()
+                            showPinDialog = false
+                        } else {
+                            Toast.makeText(context, "Incorrect code. Access denied.", Toast.LENGTH_SHORT).show()
+                        }
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = primaryAccent)
+                ) {
+                    Text("COPY UNMASKED", color = Color.Black, fontWeight = FontWeight.Bold)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showPinDialog = false }) {
+                    Text("CANCEL")
+                }
+            }
+        )
+    }
 
     AlertDialog(
         onDismissRequest = onDismiss,
         title = {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Icon(
-                    imageVector = Icons.Default.Email,
-                    contentDescription = null,
-                    tint = primaryAccent,
-                    modifier = Modifier.size(24.dp)
-                )
-                Spacer(modifier = Modifier.width(8.dp))
-                Text(
-                    text = "Connect Gmail (IMAP)",
-                    fontWeight = FontWeight.Bold,
-                    fontSize = 17.sp
-                )
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(
+                        imageVector = Icons.Default.Email,
+                        contentDescription = null,
+                        tint = primaryAccent,
+                        modifier = Modifier.size(24.dp)
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text(
+                        text = "Connect Gmail",
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 17.sp
+                    )
+                }
+                // Small Help button on login screen
+                TextButton(
+                    onClick = { showHelp = !showHelp },
+                    contentPadding = PaddingValues(horizontal = 6.dp, vertical = 2.dp)
+                ) {
+                    Icon(Icons.Default.Info, contentDescription = null, tint = primaryAccent, modifier = Modifier.size(13.dp))
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Text(
+                        text = if (showHelp) "Hide Help" else "How to get",
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = primaryAccent
+                    )
+                }
             }
         },
         text = {
@@ -1155,49 +1290,91 @@ fun ImapSetupDialog(
                     modifier = Modifier.fillMaxWidth()
                 )
 
-                // Step-by-Step Guide
-                Card(
-                    modifier = Modifier.fillMaxWidth(),
-                    colors = CardDefaults.cardColors(
-                        containerColor = if (isDarkTheme) Color(0xFF1B1B24) else Color(0xFFF8FAFC)
-                    ),
-                    shape = RoundedCornerShape(10.dp)
-                ) {
-                    Column(modifier = Modifier.padding(10.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                        Text(
-                            "HOW TO GET AN APP PASSWORD",
-                            fontSize = 11.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = primaryAccent
-                        )
-                        Text(
-                            "1. Go to Google Account > Security (2-Step Verification must be ON).",
-                            fontSize = 11.sp
-                        )
-                        Text(
-                            "2. Search for 'App passwords' or open the link below.",
-                            fontSize = 11.sp
-                        )
-                        Text(
-                            "3. Create a new password named 'Zero Inbox' and paste the 16 characters above.",
-                            fontSize = 11.sp
-                        )
+                // Expandable Help Guide Dropdown
+                if (showHelp) {
+                    Card(
+                        modifier = Modifier.fillMaxWidth(),
+                        colors = CardDefaults.cardColors(
+                            containerColor = if (isDarkTheme) Color(0xFF1B1B24) else Color(0xFFF8FAFC)
+                        ),
+                        border = BorderStroke(1.dp, primaryAccent.copy(alpha = 0.3f)),
+                        shape = RoundedCornerShape(10.dp)
+                    ) {
+                        Column(modifier = Modifier.padding(10.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                            // Stored Last Used App Password moved inside Help dropdown
+                            if (initialPassword.isNotBlank()) {
+                                Card(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .pointerInput(Unit) {
+                                            detectTapGestures(
+                                                onLongPress = {
+                                                    pinInput = ""
+                                                    showPinDialog = true
+                                                }
+                                            )
+                                        },
+                                    colors = CardDefaults.cardColors(
+                                        containerColor = if (isDarkTheme) Color(0xFF131722) else Color(0xFFEFF6FF)
+                                    ),
+                                    border = BorderStroke(1.dp, primaryAccent.copy(alpha = 0.35f)),
+                                    shape = RoundedCornerShape(8.dp)
+                                ) {
+                                    Column(modifier = Modifier.padding(8.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                                        Text(
+                                            text = "LAST USED APP PASSWORD (DEVICE STORED)",
+                                            fontSize = 9.5.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            color = primaryAccent
+                                        )
+                                        Text(
+                                            text = "•••• •••• •••• ••••",
+                                            fontSize = 13.sp,
+                                            fontFamily = FontFamily.Monospace,
+                                            fontWeight = FontWeight.Bold,
+                                            letterSpacing = 2.sp,
+                                            color = if (isDarkTheme) Color.LightGray else Color.DarkGray
+                                        )
+                                    }
+                                }
+                                Spacer(modifier = Modifier.height(2.dp))
+                            }
 
-                        Spacer(modifier = Modifier.height(2.dp))
+                            Text(
+                                "HOW TO GET AN APP PASSWORD",
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = primaryAccent
+                            )
+                            Text(
+                                "1. Go to Google Account > Security (2-Step Verification must be ON).",
+                                fontSize = 11.sp
+                            )
+                            Text(
+                                "2. Search for 'App passwords' or tap the button below.",
+                                fontSize = 11.sp
+                            )
+                            Text(
+                                "3. Create a new password named 'Zero Inbox' and paste the 16 characters above.",
+                                fontSize = 11.sp
+                            )
 
-                        OutlinedButton(
-                            onClick = {
-                                val intent = Intent(Intent.ACTION_VIEW, Uri.parse("https://myaccount.google.com/apppasswords"))
-                                context.startActivity(intent)
-                            },
-                            modifier = Modifier.fillMaxWidth().height(34.dp),
-                            shape = RoundedCornerShape(6.dp),
-                            border = BorderStroke(1.dp, primaryAccent),
-                            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp)
-                        ) {
-                            Icon(Icons.Default.AccountCircle, contentDescription = null, tint = primaryAccent, modifier = Modifier.size(14.dp))
-                            Spacer(modifier = Modifier.width(6.dp))
-                            Text("OPEN GOOGLE APP PASSWORDS", fontSize = 10.5.sp, color = primaryAccent, fontWeight = FontWeight.Bold)
+                            Spacer(modifier = Modifier.height(2.dp))
+
+                            OutlinedButton(
+                                onClick = {
+                                    val intent = Intent(Intent.ACTION_VIEW, Uri.parse("https://myaccount.google.com/apppasswords"))
+                                    context.startActivity(intent)
+                                },
+                                modifier = Modifier.fillMaxWidth().height(34.dp),
+                                shape = RoundedCornerShape(6.dp),
+                                border = BorderStroke(1.dp, primaryAccent),
+                                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp)
+                            ) {
+                                Icon(Icons.Default.AccountCircle, contentDescription = null, tint = primaryAccent, modifier = Modifier.size(14.dp))
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text("OPEN GOOGLE APP PASSWORDS", fontSize = 10.5.sp, color = primaryAccent, fontWeight = FontWeight.Bold)
+                            }
                         }
                     }
                 }
