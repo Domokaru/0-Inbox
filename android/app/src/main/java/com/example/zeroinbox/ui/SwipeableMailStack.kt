@@ -703,7 +703,7 @@ fun InfoCard(
             .fillMaxWidth(0.85f)
             .aspectRatio(0.75f)
             .padding(16.dp)
-            .border(2.5.dp, Color.Transparent, RoundedCornerShape(24.dp)),
+            .border(2.5f.dp, Color.Transparent, RoundedCornerShape(24.dp)),
         shape = RoundedCornerShape(24.dp),
         colors = CardDefaults.cardColors(
             containerColor = if (isDarkTheme) Color(0xFF1A1A24) else Color(0xFFF8FAFC)
