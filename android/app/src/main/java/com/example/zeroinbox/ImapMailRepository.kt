@@ -4,6 +4,8 @@ import android.content.Context
 import android.util.Log
 import com.sun.mail.imap.IMAPFolder
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import java.util.Calendar
 import java.util.Date
@@ -60,7 +62,15 @@ class ImapMailRepository(
         return Session.getInstance(props, null)
     }
 
+    private var persistentStore: Store? = null
+    private val imapMutex = Mutex()
+
+    @Synchronized
     private fun getConnectedStore(): Store {
+        val currentStore = persistentStore
+        if (currentStore != null && currentStore.isConnected) {
+            return currentStore
+        }
         val email = imapAuthManager.getEmail()
             ?: throw IllegalStateException("No Gmail address provided. Please configure your credentials.")
         val password = imapAuthManager.getAppPassword()
@@ -69,18 +79,19 @@ class ImapMailRepository(
         val session = getSession()
         val store = session.getStore("imaps")
         store.connect(imapAuthManager.getServer(), imapAuthManager.getPort(), email, password)
+        persistentStore = store
         return store
     }
 
     suspend fun verifyCredentials(): Boolean = withContext(Dispatchers.IO) {
-        try {
-            val store = getConnectedStore()
-            val isConn = store.isConnected
-            store.close()
-            isConn
-        } catch (e: Exception) {
-            Log.e(TAG, "Failed to connect to IMAP: ${e.message}", e)
-            throw e
+        imapMutex.withLock {
+            try {
+                val store = getConnectedStore()
+                store.isConnected
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed to connect to IMAP: ${e.message}", e)
+                throw e
+            }
         }
     }
 
@@ -88,6 +99,7 @@ class ImapMailRepository(
         pageToken: String? = null,
         filterTwoDays: Boolean = true
     ): Pair<List<EmailModel>, String?> = withContext(Dispatchers.IO) {
+        imapMutex.withLock {
         var store: Store? = null
         var inbox: Folder? = null
         try {
@@ -164,7 +176,7 @@ class ImapMailRepository(
             Pair(emailModels, nextToken)
         } finally {
             try { inbox?.close(false) } catch (e: Exception) {}
-            try { store?.close() } catch (e: Exception) {}
+        }
         }
     }
 
@@ -300,6 +312,7 @@ class ImapMailRepository(
      * Fetch user labels / IMAP folders.
      */
     suspend fun fetchLabels(): List<LabelModel> = withContext(Dispatchers.IO) {
+        imapMutex.withLock {
         var store: Store? = null
         try {
             store = getConnectedStore()
@@ -326,7 +339,7 @@ class ImapMailRepository(
             Log.w(TAG, "Failed to list folders: ${e.message}")
             getDemoLabels()
         } finally {
-            try { store?.close() } catch (e: Exception) {}
+        }
         }
     }
 
@@ -364,6 +377,7 @@ class ImapMailRepository(
         msgIdOrNumber: String,
         operation: (inbox: Folder, message: Message) -> Unit
     ) = withContext(Dispatchers.IO) {
+        imapMutex.withLock {
         var store: Store? = null
         var inbox: Folder? = null
         try {
@@ -388,7 +402,7 @@ class ImapMailRepository(
             }
         } finally {
             try { inbox?.close(true) } catch (e: Exception) {} // expunge deleted
-            try { store?.close() } catch (e: Exception) {}
+        }
         }
     }
 

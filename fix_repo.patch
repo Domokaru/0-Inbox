@@ -1,0 +1,66 @@
+--- android/app/src/main/java/com/example/zeroinbox/ImapMailRepository.kt
++++ android/app/src/main/java/com/example/zeroinbox/ImapMailRepository.kt
+@@ -43,6 +43,8 @@
+     var activeAccount: String? = null
+         private set
+ 
++    private var persistentStore: Store? = null
++
+     fun initialize(accountName: String) {
+         activeAccount = accountName
+     }
+@@ -60,7 +62,13 @@
+         return Session.getInstance(props, null)
+     }
+ 
++    @Synchronized
+     private fun getConnectedStore(): Store {
++        val currentStore = persistentStore
++        if (currentStore != null && currentStore.isConnected) {
++            return currentStore
++        }
++
+         val email = imapAuthManager.getEmail()
+             ?: throw IllegalStateException("No Gmail address provided. Please configure your credentials.")
+         val password = imapAuthManager.getAppPassword()
+@@ -69,14 +77,14 @@
+         val session = getSession()
+         val store = session.getStore("imaps")
+         store.connect(imapAuthManager.getServer(), imapAuthManager.getPort(), email, password)
++        persistentStore = store
+         return store
+     }
+ 
+     suspend fun verifyCredentials(): Boolean = withContext(Dispatchers.IO) {
+         try {
+             val store = getConnectedStore()
+-            val isConn = store.isConnected
+-            store.close()
+-            isConn
++            store.isConnected
+         } catch (e: Exception) {
+             Log.e(TAG, "Failed to connect to IMAP: ${e.message}", e)
+             throw e
+@@ -164,7 +172,6 @@
+             Pair(emailModels, nextToken)
+         } finally {
+             try { inbox?.close(false) } catch (e: Exception) {}
+-            try { store?.close() } catch (e: Exception) {}
+         }
+     }
+ 
+@@ -326,7 +333,6 @@
+             getDemoLabels()
+         } finally {
+-            try { store?.close() } catch (e: Exception) {}
+         }
+     }
+ 
+@@ -388,7 +394,6 @@
+             }
+         } finally {
+             try { inbox?.close(true) } catch (e: Exception) {} // expunge deleted
+-            try { store?.close() } catch (e: Exception) {}
+         }
+     }
+ 
