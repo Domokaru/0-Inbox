@@ -388,14 +388,10 @@ fun SwipeableMailStack(
 
                         coroutineScope.launch {
                             snackbarHostState.currentSnackbarData?.dismiss()
-                            val result = snackbarHostState.showSnackbar(
+                            snackbarHostState.showSnackbar(
                                 message = "$actionLabel email from ${email.sender}",
-                                actionLabel = "UNDO",
                                 duration = SnackbarDuration.Short
                             )
-                            if (result == SnackbarResult.ActionPerformed) {
-                                viewModel.undoLastAction()
-                            }
                         }
                     },
                     onLongPress = {
@@ -546,6 +542,22 @@ fun SwipeableMailStack(
                     }
                 }
 
+                // Undo Button
+                val undoColor = if (isDarkTheme) Color(0xFFFFFF00) else Color(0xFFEAB308)
+                IconButton(
+                    onClick = { viewModel.undoLastAction() },
+                    modifier = Modifier
+                        .size(42.dp)
+                        .background(undoColor.copy(alpha = 0.15f), CircleShape)
+                        .border(1.dp, undoColor.copy(alpha = 0.4f), CircleShape)
+                ) {
+                    Icon(
+                        Icons.Default.Undo, 
+                        contentDescription = "Undo Last Action", 
+                        tint = undoColor
+                    )
+                }
+
                 // 5. Label icon (Assign Custom Label) - Neon Purple, similar border
                 val labelColor = if (isDarkTheme) Color(0xFFB026FF) else Color(0xFFC026D3)
                 IconButton(
@@ -634,17 +646,13 @@ fun SwipeableMailStack(
                     }
                     // 2. Dispatch to ViewModel (Applies label, marks read, archives/moves from inbox)
                     viewModel.applyCustomLabel(targetEmail, chosenLabel)
-                    // 3. Show Snackbar with UNDO
+                    // 3. Show Snackbar
                     coroutineScope.launch {
                         snackbarHostState.currentSnackbarData?.dismiss()
-                        val result = snackbarHostState.showSnackbar(
+                        snackbarHostState.showSnackbar(
                             message = "Moved to '${chosenLabel.name}' & marked read",
-                            actionLabel = "UNDO",
                             duration = SnackbarDuration.Short
                         )
-                        if (result == SnackbarResult.ActionPerformed) {
-                            viewModel.undoLastAction()
-                        }
                     }
                 },
                 onDismiss = { emailForLabelDialog = null }
@@ -692,10 +700,10 @@ fun InfoCard(
 ) {
     Card(
         modifier = Modifier
-            .fillMaxWidth(0.86f)
-            .aspectRatio(0.72f)
+            .fillMaxWidth(0.85f)
+            .aspectRatio(0.75f)
             .padding(16.dp)
-            .border(2.5.dp, borderColor, RoundedCornerShape(24.dp)),
+            .border(2.5.dp, Color.Transparent, RoundedCornerShape(24.dp)),
         shape = RoundedCornerShape(24.dp),
         colors = CardDefaults.cardColors(
             containerColor = if (isDarkTheme) Color(0xFF1A1A24) else Color(0xFFF8FAFC)
@@ -742,8 +750,8 @@ fun EmailCard(
 
     Card(
         modifier = Modifier
-            .fillMaxWidth(0.9f)
-            .aspectRatio(0.65f)
+            .fillMaxWidth(0.85f)
+            .aspectRatio(0.75f)
             .padding(16.dp)
             .graphicsLayer {
                 translationX = offsetX.value
@@ -812,7 +820,7 @@ fun EmailCard(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(24.dp),
-            verticalArrangement = Arrangement.Center
+            verticalArrangement = Arrangement.Top
         ) {
             Text(
                 text = email.sender,
@@ -832,7 +840,12 @@ fun EmailCard(
                 overflow = TextOverflow.Ellipsis,
                 lineHeight = 30.sp
             )
-            Spacer(modifier = Modifier.height(20.dp))
+            Spacer(modifier = Modifier.height(16.dp))
+            Divider(
+                color = if (isDarkTheme) Color(0xFF22222E).copy(alpha = 0.8f) else Color(0xFFE2E8F0),
+                thickness = 1.dp
+            )
+            Spacer(modifier = Modifier.height(12.dp))
             Text(
                 text = email.snippet,
                 color = if (isDarkTheme) Color(0xFFAAAAAA) else Color(0xFF475569),

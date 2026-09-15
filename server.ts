@@ -35,6 +35,37 @@ function createGmailClient(email: string, appPassword: string, verifyOnly = fals
   });
 }
 
+
+// Connection Cache to prevent Gmail from blocking rapid reconnects during swiping
+const clientCache = new Map<string, ImapFlow>();
+
+async function getCachedClient(email: string, appPassword: string, verifyOnly = false): Promise<ImapFlow> {
+  if (verifyOnly) {
+    return createGmailClient(email, appPassword, true);
+  }
+  const key = `${email}:${appPassword}`;
+  let client = clientCache.get(key);
+  
+  if (client && client.usable) {
+    return client;
+  }
+  if (client) {
+    try { client.close(); } catch (_) {}
+    clientCache.delete(key);
+  }
+
+  client = createGmailClient(email, appPassword, false);
+  client.on('close', () => {
+    if (clientCache.get(key) === client) {
+      clientCache.delete(key);
+    }
+  });
+
+  await client.connect();
+  clientCache.set(key, client);
+  return client;
+}
+
 // 1. Test IMAP Connection
 app.post('/api/imap/connect', async (req, res) => {
   const { email, appPassword } = req.body;
@@ -82,9 +113,13 @@ app.post('/api/imap/emails', async (req, res) => {
     return res.status(400).json({ success: false, error: 'Email and App Password are required' });
   }
 
-  const client = createGmailClient(email, appPassword, false);
+  let client;
   try {
-    await client.connect();
+    client = await getCachedClient(email, appPassword, false);
+  } catch (err: any) {
+    throw err;
+  }
+  try {
     const lock = await client.getMailboxLock('INBOX');
 
     try {
@@ -192,13 +227,7 @@ app.post('/api/imap/emails', async (req, res) => {
       error: errorMessage,
     });
   } finally {
-    try {
-      await client.logout();
-    } catch (_) {
-      try {
-        client.close();
-      } catch (_) {}
-    }
+    // Keep connection alive in cache
   }
 });
 
@@ -209,9 +238,13 @@ app.post('/api/imap/action', async (req, res) => {
     return res.status(400).json({ success: false, error: 'Missing required parameters' });
   }
 
-  const client = createGmailClient(email, appPassword);
+  let client;
   try {
-    await client.connect();
+    client = await getCachedClient(email, appPassword, false);
+  } catch (err: any) {
+    throw err;
+  }
+  try {
     const lock = await client.getMailboxLock('INBOX');
 
     const uidStr = uid.toString();
@@ -244,7 +277,7 @@ app.post('/api/imap/action', async (req, res) => {
     }
 
     lock.release();
-    await client.logout();
+    
     return res.json({ success: true });
   } catch (err: any) {
     const isAuthFailed =
@@ -258,13 +291,7 @@ app.post('/api/imap/action', async (req, res) => {
     console.error(`IMAP Action (${action}) error:`, err?.message || err);
     return res.status(500).json({ success: false, error: err.message || `Failed to perform ${action}` });
   } finally {
-    try {
-      await client.logout();
-    } catch (_) {
-      try {
-        client.close();
-      } catch (_) {}
-    }
+    // Keep connection alive in cache
   }
 });
 
@@ -275,9 +302,13 @@ app.post('/api/imap/undo', async (req, res) => {
     return res.status(400).json({ success: false, error: 'Missing required parameters' });
   }
 
-  const client = createGmailClient(email, appPassword);
+  let client;
   try {
-    await client.connect();
+    client = await getCachedClient(email, appPassword, false);
+  } catch (err: any) {
+    throw err;
+  }
+  try {
 
     const uidStr = uid.toString();
     if (previousAction === 'trash') {
@@ -296,7 +327,7 @@ app.post('/api/imap/undo', async (req, res) => {
       lock.release();
     }
 
-    await client.logout();
+    
     return res.json({ success: true });
   } catch (err: any) {
     const isAuthFailed =
@@ -310,13 +341,7 @@ app.post('/api/imap/undo', async (req, res) => {
     console.error('IMAP Undo error:', err?.message || err);
     return res.status(500).json({ success: false, error: err.message || 'Failed to undo action' });
   } finally {
-    try {
-      await client.logout();
-    } catch (_) {
-      try {
-        client.close();
-      } catch (_) {}
-    }
+    // Keep connection alive in cache
   }
 });
 

@@ -216,7 +216,6 @@ export default function AndroidSimulator({
   const [hasMore, setHasMore] = useState(true);
   const [nextPageToken, setNextPageToken] = useState<string | undefined>(undefined);
   const [batchCount, setBatchCount] = useState(1);
-  const [snackbarVisible, setSnackbarVisible] = useState(false);
 
   // Real Gmail Auth state
   const [currentUser, setCurrentUser] = useState<User | null>(null);
@@ -642,7 +641,6 @@ export default function AndroidSimulator({
       direction,
       label: `${actionDesc} from ${email.sender.split(' ')[0]}`,
     });
-    setSnackbarVisible(true);
   };
 
   const handleSwipe = (email: MockEmail, direction: SwipeDirection) => {
@@ -694,7 +692,6 @@ export default function AndroidSimulator({
       customLabelId: targetId,
       label: `Moved to "${labelName}"${markAsReadWithLabel ? ' & marked read' : ''}`,
     });
-    setSnackbarVisible(true);
 
     // 5. Close modal
     setShowLabelModal(false);
@@ -745,7 +742,6 @@ export default function AndroidSimulator({
 
     // Restore to top of stack
     setEmails((prev) => [...prev, lastAction.email]);
-    setSnackbarVisible(false);
     setLastAction(null);
   };
 
@@ -826,7 +822,6 @@ export default function AndroidSimulator({
   const resetDemo = () => {
     setEmails(INITIAL_DEMO_EMAILS);
     setLastAction(null);
-    setSnackbarVisible(false);
     setHasMore(true);
     setBatchCount(1);
     setIsLiveGmailMode(false);
@@ -923,7 +918,7 @@ export default function AndroidSimulator({
 
             {/* Gmail Connection Badge */}
             <div className="mt-1 flex items-center gap-1.5">
-              {isLiveGmailMode && (connectedImapEmail || currentUser) ? (
+              {isLiveGmailMode && (connectedImapEmail || currentUser) && (
                 <div
                   className={`flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[10px] font-medium border ${
                     isDarkTheme
@@ -934,18 +929,6 @@ export default function AndroidSimulator({
                   <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
                   <span className="truncate max-w-[170px]">{connectedImapEmail || currentUser?.email}</span>
                 </div>
-              ) : (
-                <button
-                  onClick={() => setShowImapModal(true)}
-                  className={`flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[10px] font-medium border transition-colors cursor-pointer ${
-                    isDarkTheme
-                      ? 'bg-[#00FFFF]/10 text-[#00FFFF] border-[#00FFFF]/30 hover:bg-[#00FFFF]/20'
-                      : 'bg-sky-50 text-sky-700 border-sky-300 hover:bg-sky-100'
-                  }`}
-                >
-                  <Key size={10} />
-                  <span>Connect Gmail (App Password)</span>
-                </button>
               )}
             </div>
           </div>
@@ -1087,9 +1070,9 @@ export default function AndroidSimulator({
             {/* Informational Pagination Card (rendered at bottom of stack) */}
             {hasMore && emails.length > 0 && (
               <motion.div
-                className={`absolute w-[90%] aspect-[0.68] rounded-[24px] ${
+                className={`absolute w-[85%] aspect-[0.75] rounded-[24px] ${
                   isDarkTheme ? 'bg-[#1A1A24]' : 'bg-[#F8FAFC]'
-                } border-2 ${infoBorderColor} p-6 flex flex-col items-center justify-center text-center shadow-lg cursor-pointer`}
+                } border-2 border-transparent p-6 flex flex-col items-center justify-center text-center shadow-lg cursor-pointer`}
                 whileHover={{ scale: 1.02 }}
                 whileTap={{ scale: 0.98 }}
                 onClick={handleFetchNextBatch}
@@ -1136,8 +1119,7 @@ export default function AndroidSimulator({
                   isTop={isTop}
                   isDarkTheme={isDarkTheme}
                   primaryAccent={primaryAccent}
-                  cardBorderColor={cardBorderColor}
-                  snackbarVisible={snackbarVisible}
+                  cardBorderColor={isTop ? cardBorderColor : 'border-transparent'}
                   onSwipe={(dir) => handleSwipe(email, dir)}
                   onLongPress={() => handleOpenLabelModal(email)}
                 />
@@ -1172,48 +1154,6 @@ export default function AndroidSimulator({
                   {activePopup.icon === 'label' && (
                     <FolderInput size={48} color={activePopup.color} strokeWidth={2.5} />
                   )}
-                </motion.div>
-              )}
-            </AnimatePresence>
-
-            {/* Material 3 Snackbar with UNDO Button */}
-            <AnimatePresence>
-              {snackbarVisible && lastAction && (
-                <motion.div
-                  initial={{ y: 80, opacity: 0 }}
-                  animate={{ y: 0, opacity: 1 }}
-                  exit={{ y: 80, opacity: 0 }}
-                  transition={{ type: 'spring', damping: 25, stiffness: 300 }}
-                  className={`absolute bottom-2 left-3 right-3 pointer-events-auto z-[60] ${
-                    isDarkTheme
-                      ? 'bg-[#1B1B26] border-[#007BFF]'
-                      : 'bg-[#F1F5F9] border-[#60A5FA]'
-                  } border rounded-2xl p-2.5 shadow-2xl flex items-center justify-between gap-2 scale-95`}
-                >
-                  <div className="flex items-center gap-2 overflow-hidden">
-                    <CheckCircle2
-                      size={16}
-                      style={{ color: primaryAccent }}
-                      className="shrink-0"
-                    />
-                    <span
-                      className={`text-xs truncate ${isDarkTheme ? 'text-white' : 'text-slate-800'}`}
-                    >
-                      {lastAction.label}
-                    </span>
-                  </div>
-                  <button
-                    onClick={handleUndo}
-                    className="px-3 py-1.5 rounded-lg text-xs font-bold tracking-wider uppercase transition-colors shrink-0 flex items-center gap-1 shadow-sm"
-                    style={{
-                      backgroundColor: `${primaryAccent}20`,
-                      color: primaryAccent,
-                      border: `1px solid ${primaryAccent}40`,
-                    }}
-                  >
-                    <RotateCcw size={12} />
-                    Undo
-                  </button>
                 </motion.div>
               )}
             </AnimatePresence>
@@ -1476,17 +1416,18 @@ export default function AndroidSimulator({
                   initial={{ opacity: 0 }}
                   animate={{ opacity: 1 }}
                   exit={{ opacity: 0 }}
-                  className="absolute inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-end justify-center p-3"
+                  className="absolute inset-0 z-50 bg-black/60 backdrop-blur-xs flex justify-center"
                 >
                   <motion.div
-                    initial={{ y: 200 }}
-                    animate={{ y: 0 }}
-                    exit={{ y: 200 }}
-                    className={`w-full ${
+                    initial={{ rotateX: -90, opacity: 0 }}
+                    animate={{ rotateX: 0, opacity: 1 }}
+                    exit={{ rotateX: -90, opacity: 0 }}
+                    style={{ transformOrigin: 'top center', perspective: '1200px' }}
+                    className={`absolute inset-0 w-full h-full ${
                       isDarkTheme
-                        ? 'bg-[#181822] text-white border-[#2A2A3A]'
-                        : 'bg-white text-slate-900 border-slate-200'
-                    } border rounded-3xl p-5 shadow-2xl max-h-[85%] overflow-y-auto`}
+                        ? 'bg-[#181822] text-white'
+                        : 'bg-white text-slate-900'
+                    } p-5 shadow-2xl overflow-y-auto flex flex-col`}
                   >
                     <div className="flex items-center justify-between pb-3 border-b border-gray-500/20 mb-4">
                       <h3 className="font-bold text-base">App Settings</h3>
@@ -1541,16 +1482,6 @@ export default function AndroidSimulator({
                               <Key size={14} />
                               <span>Connect Gmail</span>
                             </button>
-                            <GoogleSignInButton
-                              onClick={handleGoogleSignIn}
-                              disabled={isSigningInGoogle}
-                              isDarkTheme={isDarkTheme}
-                              label={isSigningInGoogle ? 'Connecting...' : 'Sign in with Google (OAuth)'}
-                              className="w-full"
-                            />
-                            <p className="text-[11px] text-gray-400">
-                              App Passwords connect directly to Gmail IMAP to bypass development 403 access restrictions.
-                            </p>
                           </div>
                         )}
 
@@ -1595,106 +1526,56 @@ export default function AndroidSimulator({
                       </div>
 
                       {/* Theme Toggle */}
-                      <div>
-                        <label className="text-xs font-semibold text-gray-400 block mb-2 uppercase tracking-wider">
-                          Theme Mode
-                        </label>
-                        <div className="grid grid-cols-2 gap-2">
-                          <button
-                            onClick={() => setIsDarkTheme(true)}
-                            className={`p-3 rounded-2xl border flex flex-col items-center gap-2 transition-all ${
-                              isDarkTheme
-                                ? 'bg-[#0F0F13] border-[#00FFFF] shadow-[0_0_15px_rgba(0,255,255,0.2)] text-white'
-                                : 'bg-gray-800/40 border-transparent text-gray-400 hover:text-white'
-                            }`}
-                          >
-                            <Moon size={20} className={isDarkTheme ? 'text-[#00FFFF]' : ''} />
-                            <span className="text-xs font-bold">Neon Dark</span>
-                            <span className="text-[10px] opacity-70">Cyan & Magenta</span>
-                          </button>
-                          <button
-                            onClick={() => setIsDarkTheme(false)}
-                            className={`p-3 rounded-2xl border flex flex-col items-center gap-2 transition-all ${
-                              !isDarkTheme
-                                ? 'bg-white border-[#0EA5E9] shadow-[0_0_15px_rgba(14,165,233,0.25)] text-slate-900'
-                                : 'bg-gray-800/40 border-transparent text-gray-400 hover:text-white'
-                            }`}
-                          >
-                            <Sun size={20} className={!isDarkTheme ? 'text-[#0EA5E9]' : ''} />
-                            <span className="text-xs font-bold">Pastel Light</span>
-                            <span className="text-[10px] opacity-70">White & Pastels</span>
-                          </button>
+                      <div className="flex items-center justify-between">
+                        <div>
+                          <label className="text-xs font-semibold text-gray-400 block uppercase tracking-wider">
+                            Theme Mode
+                          </label>
+                          <p className={`text-[10px] mt-0.5 ${isDarkTheme ? 'text-gray-500' : 'text-slate-400'}`}>
+                            {isDarkTheme ? 'Neon Dark' : 'Pastel Light'}
+                          </p>
                         </div>
+                        <button
+                          onClick={() => setIsDarkTheme(!isDarkTheme)}
+                          className={`w-12 h-6 rounded-full p-1 transition-colors ${
+                            isDarkTheme ? 'bg-[#00FFFF]' : 'bg-slate-300'
+                          }`}
+                        >
+                          <motion.div
+                            className="w-4 h-4 rounded-full bg-white shadow-sm"
+                            animate={{ x: isDarkTheme ? 24 : 0 }}
+                            transition={{ type: "spring", stiffness: 500, damping: 30 }}
+                          />
+                        </button>
                       </div>
 
                       {/* Filter Toggle */}
-                      <div>
-                        <label className="text-xs font-semibold text-gray-400 block mb-2 uppercase tracking-wider">
-                          Filter Emails
-                        </label>
-                        <div className="grid grid-cols-2 gap-2">
-                          <button
-                            onClick={() => {
-                              setFilterTwoDays(true);
-                              if (isLiveGmailMode && accessToken) loadRealGmailData(accessToken);
-                            }}
-                            className={`p-3 rounded-2xl border flex flex-col items-center gap-2 transition-all ${
-                              filterTwoDays
-                                ? isDarkTheme
-                                  ? 'bg-[#0F0F13] border-[#00FFFF] shadow-[0_0_15px_rgba(0,255,255,0.2)] text-white'
-                                  : 'bg-white border-[#0EA5E9] shadow-[0_0_15px_rgba(14,165,233,0.25)] text-slate-900'
-                                : isDarkTheme
-                                ? 'bg-gray-800/40 border-transparent text-gray-400 hover:text-white'
-                                : 'bg-slate-100 border-transparent text-slate-500 hover:text-slate-900'
-                            }`}
-                          >
-                            <span className="text-xs font-bold">Last 2 Days</span>
-                          </button>
-                          <button
-                            onClick={() => {
-                              setFilterTwoDays(false);
-                              if (isLiveGmailMode && accessToken) loadRealGmailData(accessToken);
-                            }}
-                            className={`p-3 rounded-2xl border flex flex-col items-center gap-2 transition-all ${
-                              !filterTwoDays
-                                ? isDarkTheme
-                                  ? 'bg-[#0F0F13] border-[#00FFFF] shadow-[0_0_15px_rgba(0,255,255,0.2)] text-white'
-                                  : 'bg-white border-[#0EA5E9] shadow-[0_0_15px_rgba(14,165,233,0.25)] text-slate-900'
-                                : isDarkTheme
-                                ? 'bg-gray-800/40 border-transparent text-gray-400 hover:text-white'
-                                : 'bg-slate-100 border-transparent text-slate-500 hover:text-slate-900'
-                            }`}
-                          >
-                            <span className="text-xs font-bold">All Inbox Mail</span>
-                          </button>
+                      <div className="flex items-center justify-between">
+                        <div>
+                          <label className="text-xs font-semibold text-gray-400 block uppercase tracking-wider">
+                            Filter Emails
+                          </label>
+                          <p className={`text-[10px] mt-0.5 ${isDarkTheme ? 'text-gray-500' : 'text-slate-400'}`}>
+                            {filterTwoDays ? 'Last 2 Days' : 'All Inbox Mail'}
+                          </p>
                         </div>
-                      </div>
-
-                      {/* Reset Demo Button */}
-                      <div>
                         <button
                           onClick={() => {
-                            resetDemo();
-                            setShowSettings(false);
+                            const newValue = !filterTwoDays;
+                            setFilterTwoDays(newValue);
+                            if (isLiveGmailMode && accessToken) loadRealGmailData(accessToken);
                           }}
-                          className={`w-full py-2.5 rounded-xl border text-xs font-semibold transition-colors ${
-                            isDarkTheme
-                              ? 'border-[#383850] text-gray-300 hover:bg-[#252538]'
-                              : 'border-slate-300 text-slate-700 hover:bg-slate-100'
+                          className={`w-12 h-6 rounded-full p-1 transition-colors flex items-center ${
+                            filterTwoDays ? 'bg-[#00FFFF]' : 'bg-slate-300'
                           }`}
                         >
-                          Reset to Initial Demo Stack
+                          <motion.div
+                            className="w-4 h-4 rounded-full bg-white shadow-sm"
+                            animate={{ x: filterTwoDays ? 24 : 0 }}
+                            transition={{ type: "spring", stiffness: 500, damping: 30 }}
+                          />
                         </button>
                       </div>
-                    </div>
-
-                    <div className="mt-4 pt-3 border-t border-dashed border-gray-500/20 text-center">
-                      <p className={`text-[10px] font-mono ${isDarkTheme ? 'text-gray-400' : 'text-slate-500'}`}>
-                        Zero Inbox Android • v1.0.1 (Build 2)
-                      </p>
-                      <p className={`text-[9px] font-mono mt-0.5 ${isDarkTheme ? 'text-gray-500' : 'text-slate-400'}`}>
-                        pkg: com.example.zeroinbox • Target SDK 34
-                      </p>
                     </div>
 
                     <button
@@ -1786,6 +1667,20 @@ export default function AndroidSimulator({
               <div className="absolute right-0 h-full flex items-center -mr-0.5">
                 <ChevronRight size={13} strokeWidth={4} className="opacity-70" />
               </div>
+            </button>
+
+            {/* Undo Button */}
+            <button
+              title="Undo Last Action"
+              disabled={!lastAction}
+              onClick={handleUndo}
+              className={`w-10 h-10 rounded-full ${
+                isDarkTheme
+                  ? 'bg-[#FFFF00]/10 border-[#FFFF00]/40 text-[#FFFF00]'
+                  : 'bg-yellow-50 border-yellow-300 text-[#EAB308]'
+              } border flex items-center justify-center transition-transform active:scale-95 disabled:opacity-40 cursor-pointer`}
+            >
+              <RotateCcw size={18} />
             </button>
 
             {/* 4. Assign Custom Label */}
@@ -1896,7 +1791,6 @@ interface SwipeableCardProps {
   isDarkTheme: boolean;
   primaryAccent: string;
   cardBorderColor: string;
-  snackbarVisible: boolean;
   onSwipe: (dir: SwipeDirection) => void;
   onLongPress: () => void;
 }
@@ -1907,7 +1801,6 @@ function SwipeableCard({
   isDarkTheme,
   primaryAccent,
   cardBorderColor,
-  snackbarVisible,
   onSwipe,
   onLongPress,
 }: SwipeableCardProps) {
@@ -1993,10 +1886,10 @@ function SwipeableCard({
       }}
       animate={{
         scale: isTop ? 1 : 0.95,
-        y: isTop ? (snackbarVisible ? -32 : 0) : (snackbarVisible ? -24 : 8),
+        y: isTop ? 0 : 8,
       }}
       transition={{ type: 'spring', damping: 25, stiffness: 200 }}
-      className={`absolute w-[90%] aspect-[0.66] rounded-[24px] ${cardBg} border-2 ${cardBorderColor} p-6 flex flex-col justify-between shadow-2xl cursor-grab active:cursor-grabbing ${
+      className={`absolute w-[85%] aspect-[0.75] rounded-[24px] ${cardBg} border-2 ${cardBorderColor} p-6 flex flex-col justify-start shadow-2xl cursor-grab active:cursor-grabbing ${
         !isTop ? 'pointer-events-none' : ''
       }`}
       title={isTop ? 'Swipe in 4 directions or Long Press to Label' : undefined}
@@ -2031,7 +1924,7 @@ function SwipeableCard({
         </h3>
       </div>
 
-      <div className={`pt-2 border-t ${isDarkTheme ? 'border-[#22222E]/80' : 'border-slate-100'}`}>
+      <div className={`mt-2 pt-3 border-t ${isDarkTheme ? 'border-[#22222E]/80' : 'border-slate-200'}`}>
         <p className={`text-xs ${snippetColor} line-clamp-6 leading-relaxed`}>{email.snippet}</p>
       </div>
     </motion.div>

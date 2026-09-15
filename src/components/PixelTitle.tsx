@@ -37,10 +37,6 @@ export default function PixelTitle({
   width = 220,
   height = 70,
 }: PixelTitleProps) {
-  const uniqueId = useId().replace(/:/g, '');
-  const cyanFilterId = `glow-cyan-${uniqueId}`;
-  const magentaFilterId = `glow-magenta-${uniqueId}`;
-
   return (
     <div
       className={`inline-flex items-center justify-center select-none bg-transparent ${className}`}
@@ -61,67 +57,18 @@ export default function PixelTitle({
           backgroundColor: 'transparent',
         }}
       >
-        <defs>
-          <filter
-            id={cyanFilterId}
-            x="-50%"
-            y="-50%"
-            width="200%"
-            height="200%"
-            colorInterpolationFilters="sRGB"
-          >
-            <feGaussianBlur in="SourceGraphic" stdDeviation="1.5" result="blur1" />
-            <feGaussianBlur in="SourceGraphic" stdDeviation="3" result="blur2" />
-            <feGaussianBlur in="SourceGraphic" stdDeviation="6" result="blur3" />
-            <feMerge>
-              <feMergeNode in="blur3" />
-              <feMergeNode in="blur2" />
-              <feMergeNode in="blur1" />
-              <feMergeNode in="SourceGraphic" />
-            </feMerge>
-          </filter>
-
-          <filter
-            id={magentaFilterId}
-            x="-50%"
-            y="-50%"
-            width="200%"
-            height="200%"
-            colorInterpolationFilters="sRGB"
-          >
-            <feGaussianBlur in="SourceGraphic" stdDeviation="1.5" result="blur1" />
-            <feGaussianBlur in="SourceGraphic" stdDeviation="3" result="blur2" />
-            <feGaussianBlur in="SourceGraphic" stdDeviation="6" result="blur3" />
-            <feMerge>
-              <feMergeNode in="blur3" />
-              <feMergeNode in="blur2" />
-              <feMergeNode in="blur1" />
-              <feMergeNode in="SourceGraphic" />
-            </feMerge>
-          </filter>
-        </defs>
-
         <g transform="translate(30, 40) scale(10)" style={{ background: 'transparent' }}>
-          {/* Gentle, light pulsing glow layer (SVG-native, 100% transparent background) */}
-          <g opacity="0.65">
-            <animate
-              attributeName="opacity"
-              values="0.45;0.75;0.45"
-              dur="2.6s"
-              repeatCount="indefinite"
-            />
-            {/* Cyan Slashed Zero Glow */}
+          {/* Gentle, light pulsing glow layer using CSS filters to avoid SVG sRGB artifact boxes */}
+          <g opacity="0.65" className="animate-pulse">
             <path
               fill={zeroColor}
-              filter={`url(#${cyanFilterId})`}
               d={CYAN_ZERO_PATH}
+              style={{ filter: `drop-shadow(0px 0px 5px ${zeroColor})` }}
             />
-
-            {/* Magenta INBOX Text Glow */}
             <path
               fill={inboxColor}
-              filter={`url(#${magentaFilterId})`}
               d={MAGENTA_INBOX_PATH}
+              style={{ filter: `drop-shadow(0px 0px 5px ${inboxColor})` }}
             />
           </g>
 
