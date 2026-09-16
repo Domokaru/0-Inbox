@@ -1,6 +1,13 @@
 package com.example.zeroinbox.ui
 
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.scaleOut
 import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateFloat
@@ -21,6 +28,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AccountCircle
 import androidx.compose.material.icons.filled.Archive
+import androidx.compose.material.icons.filled.Undo
 import androidx.compose.material.icons.filled.ArrowDropDown
 import androidx.compose.material.icons.filled.Key
 import androidx.compose.material.icons.filled.Lock
@@ -51,6 +59,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.scale
+import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.zIndex
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -96,7 +106,6 @@ fun SwipeableMailStack(
     val errorMessage by viewModel.errorMessage.collectAsState()
 
     val coroutineScope = rememberCoroutineScope()
-    val snackbarHostState = remember { SnackbarHostState() }
     var activePopup by remember { mutableStateOf<PopupAction?>(null) }
     var showSettingsDialog by remember { mutableStateOf(false) }
     var showImapSetupDialog by remember { mutableStateOf(false) }
@@ -374,25 +383,8 @@ fun SwipeableMailStack(
                     borderColor = secondaryAccent,
                     senderColor = primaryAccent,
                     onSwiped = { direction ->
-                        if (direction != SwipeDirection.LEFT) {
-                            showPopupAndClear(direction, isDarkTheme, coroutineScope) { activePopup = it }
-                        }
+                        showPopupAndClear(direction, isDarkTheme, coroutineScope) { activePopup = it }
                         viewModel.processEmailSwipe(email, direction)
-
-                        val actionLabel = when (direction) {
-                            SwipeDirection.RIGHT -> "Archived"
-                            SwipeDirection.LEFT -> "Deleted"
-                            SwipeDirection.UP -> "Marked 'Needs Response'"
-                            SwipeDirection.DOWN -> "Marked as read"
-                        }
-
-                        coroutineScope.launch {
-                            snackbarHostState.currentSnackbarData?.dismiss()
-                            snackbarHostState.showSnackbar(
-                                message = "$actionLabel email from ${email.sender}",
-                                duration = SnackbarDuration.Short
-                            )
-                        }
                     },
                     onLongPress = {
                         emailForLabelDialog = email
@@ -481,12 +473,12 @@ fun SwipeableMailStack(
                     }
                 }
 
-                // 3. Trash icon (Delete) - Remove confirmation popup (showPopupAndClear)
+                // 3. Trash icon (Delete)
                 IconButton(
                     onClick = {
                         if (emails.isNotEmpty()) {
                             val email = emails.last()
-                            // Skipping showPopupAndClear for delete to remove confirmation popup
+                            showPopupAndClear(SwipeDirection.LEFT, isDarkTheme, coroutineScope) { activePopup = it }
                             viewModel.processEmailSwipe(email, SwipeDirection.LEFT)
                         }
                     },
@@ -585,32 +577,35 @@ fun SwipeableMailStack(
             )
         }
 
-        // Screen-centered Popup: ONLY the Neon/Pastel Icon, NO words or subtitles!
-        activePopup?.let { popup ->
-            NeonIconOnlyPopup(popup = popup)
-        }
-
-        // Material 3 Neon / Pastel Snackbar with Undo Button
-        SnackbarHost(
-            hostState = snackbarHostState,
+        // Screen-centered Popup: ONLY the Neon/Pastel Icon animated on the card
+        Box(
             modifier = Modifier
-                .align(Alignment.BottomCenter)
-                .padding(bottom = 20.dp, start = 16.dp, end = 16.dp)
-                .scale(0.9f)
-        ) { data ->
-            Snackbar(
-                snackbarData = data,
-                containerColor = if (isDarkTheme) Color(0xFF1B1B26) else Color(0xFFF1F5F9),
-                contentColor = if (isDarkTheme) Color.White else Color(0xFF0F172A),
-                actionColor = primaryAccent,
-                actionContentColor = primaryAccent,
-                shape = RoundedCornerShape(16.dp),
-                modifier = Modifier.border(
-                    1.5.dp,
-                    tertiaryAccent,
-                    RoundedCornerShape(16.dp)
+                .align(Alignment.Center)
+                .zIndex(100f),
+            contentAlignment = Alignment.Center
+        ) {
+            AnimatedVisibility(
+                visible = activePopup != null,
+                enter = scaleIn(
+                    initialScale = 0.4f,
+                    animationSpec = spring(
+                        dampingRatio = Spring.DampingRatioMediumBouncy,
+                        stiffness = Spring.StiffnessLow
+                    )
+                ) + fadeIn(
+                    animationSpec = tween(120)
+                ),
+                exit = scaleOut(
+                    targetScale = 0.6f,
+                    animationSpec = tween(150)
+                ) + fadeOut(
+                    animationSpec = tween(150)
                 )
-            )
+            ) {
+                activePopup?.let { popup ->
+                    NeonIconOnlyPopup(popup = popup)
+                }
+            }
         }
 
         // IMAP & App Password Setup Dialog
@@ -646,14 +641,6 @@ fun SwipeableMailStack(
                     }
                     // 2. Dispatch to ViewModel (Applies label, marks read, archives/moves from inbox)
                     viewModel.applyCustomLabel(targetEmail, chosenLabel)
-                    // 3. Show Snackbar
-                    coroutineScope.launch {
-                        snackbarHostState.currentSnackbarData?.dismiss()
-                        snackbarHostState.showSnackbar(
-                            message = "Moved to '${chosenLabel.name}' & marked read",
-                            duration = SnackbarDuration.Short
-                        )
-                    }
                 },
                 onDismiss = { emailForLabelDialog = null }
             )
@@ -703,7 +690,7 @@ fun InfoCard(
             .fillMaxWidth(0.85f)
             .aspectRatio(0.75f)
             .padding(16.dp)
-            .border(2.5.dp, Color.Transparent, RoundedCornerShape(24.dp)),
+            .border(2.5f.dp, Color.Transparent, RoundedCornerShape(24.dp)),
         shape = RoundedCornerShape(24.dp),
         colors = CardDefaults.cardColors(
             containerColor = if (isDarkTheme) Color(0xFF1A1A24) else Color(0xFFF8FAFC)
@@ -865,7 +852,8 @@ fun NeonIconOnlyPopup(popup: PopupAction) {
     Box(
         modifier = Modifier
             .size(130.dp)
-            .background(Color(0xCC000000), CircleShape)
+            .shadow(24.dp, CircleShape)
+            .background(Color(0xEE000000), CircleShape)
             .border(3.5.dp, popup.color, CircleShape),
         contentAlignment = Alignment.Center
     ) {
@@ -891,11 +879,11 @@ private fun showPopupAndClear(
         )
         SwipeDirection.LEFT -> Pair(
             Icons.Default.Delete,
-            if (isDarkTheme) Color(0xFFFF3366) else Color(0xFFF87171)
+            if (isDarkTheme) Color(0xFFFF3366) else Color(0xFFEF4444)
         )
         SwipeDirection.UP -> Pair(
             Icons.Default.Edit,
-            if (isDarkTheme) Color(0xFFFF00FF) else Color(0xFFEC4899)
+            if (isDarkTheme) Color(0xFF39FF14) else Color(0xFF22C55E)
         )
         SwipeDirection.DOWN -> Pair(
             Icons.Default.Drafts,
@@ -905,7 +893,7 @@ private fun showPopupAndClear(
 
     coroutineScope.launch {
         setPopup(PopupAction(icon, color))
-        delay(700) // Strictly less than 1 second
+        delay(650)
         setPopup(null)
     }
 }

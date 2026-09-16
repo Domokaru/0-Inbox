@@ -1,6 +1,13 @@
 package com.example.zeroinbox.ui
 
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.scaleOut
 import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateFloat
@@ -52,6 +59,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.scale
+import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.zIndex
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -374,9 +383,7 @@ fun SwipeableMailStack(
                     borderColor = secondaryAccent,
                     senderColor = primaryAccent,
                     onSwiped = { direction ->
-                        if (direction != SwipeDirection.LEFT) {
-                            showPopupAndClear(direction, isDarkTheme, coroutineScope) { activePopup = it }
-                        }
+                        showPopupAndClear(direction, isDarkTheme, coroutineScope) { activePopup = it }
                         viewModel.processEmailSwipe(email, direction)
                     },
                     onLongPress = {
@@ -466,12 +473,12 @@ fun SwipeableMailStack(
                     }
                 }
 
-                // 3. Trash icon (Delete) - Remove confirmation popup (showPopupAndClear)
+                // 3. Trash icon (Delete)
                 IconButton(
                     onClick = {
                         if (emails.isNotEmpty()) {
                             val email = emails.last()
-                            // Skipping showPopupAndClear for delete to remove confirmation popup
+                            showPopupAndClear(SwipeDirection.LEFT, isDarkTheme, coroutineScope) { activePopup = it }
                             viewModel.processEmailSwipe(email, SwipeDirection.LEFT)
                         }
                     },
@@ -570,9 +577,35 @@ fun SwipeableMailStack(
             )
         }
 
-        // Screen-centered Popup: ONLY the Neon/Pastel Icon, NO words or subtitles!
-        activePopup?.let { popup ->
-            NeonIconOnlyPopup(popup = popup)
+        // Screen-centered Popup: ONLY the Neon/Pastel Icon animated on the card
+        Box(
+            modifier = Modifier
+                .align(Alignment.Center)
+                .zIndex(100f),
+            contentAlignment = Alignment.Center
+        ) {
+            AnimatedVisibility(
+                visible = activePopup != null,
+                enter = scaleIn(
+                    initialScale = 0.4f,
+                    animationSpec = spring(
+                        dampingRatio = Spring.DampingRatioMediumBouncy,
+                        stiffness = Spring.StiffnessLow
+                    )
+                ) + fadeIn(
+                    animationSpec = tween(120)
+                ),
+                exit = scaleOut(
+                    targetScale = 0.6f,
+                    animationSpec = tween(150)
+                ) + fadeOut(
+                    animationSpec = tween(150)
+                )
+            ) {
+                activePopup?.let { popup ->
+                    NeonIconOnlyPopup(popup = popup)
+                }
+            }
         }
 
         // IMAP & App Password Setup Dialog
@@ -819,7 +852,8 @@ fun NeonIconOnlyPopup(popup: PopupAction) {
     Box(
         modifier = Modifier
             .size(130.dp)
-            .background(Color(0xCC000000), CircleShape)
+            .shadow(24.dp, CircleShape)
+            .background(Color(0xEE000000), CircleShape)
             .border(3.5.dp, popup.color, CircleShape),
         contentAlignment = Alignment.Center
     ) {
@@ -845,11 +879,11 @@ private fun showPopupAndClear(
         )
         SwipeDirection.LEFT -> Pair(
             Icons.Default.Delete,
-            if (isDarkTheme) Color(0xFFFF3366) else Color(0xFFF87171)
+            if (isDarkTheme) Color(0xFFFF3366) else Color(0xFFEF4444)
         )
         SwipeDirection.UP -> Pair(
             Icons.Default.Edit,
-            if (isDarkTheme) Color(0xFFFF00FF) else Color(0xFFEC4899)
+            if (isDarkTheme) Color(0xFF39FF14) else Color(0xFF22C55E)
         )
         SwipeDirection.DOWN -> Pair(
             Icons.Default.Drafts,
@@ -859,7 +893,7 @@ private fun showPopupAndClear(
 
     coroutineScope.launch {
         setPopup(PopupAction(icon, color))
-        delay(700) // Strictly less than 1 second
+        delay(650)
         setPopup(null)
     }
 }
