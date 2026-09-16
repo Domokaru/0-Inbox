@@ -47,7 +47,15 @@ class MainActivity : ComponentActivity() {
             }
         } catch (e: Exception) {
             e.printStackTrace()
-            Toast.makeText(this@MainActivity, "Google Sign-In failed: ${e.localizedMessage}", Toast.LENGTH_LONG).show()
+            val errorMessage = when (e) {
+                is ApiException -> when (e.statusCode) {
+                    10 -> "Google Sign-In Error 10 (DEVELOPER_ERROR): Please register an Android OAuth Client ID in Google Cloud Console with package 'com.example.zeroinbox' and your APK's SHA-1 fingerprint."
+                    12500 -> "Google Sign-In Error 12500: Check Google Cloud OAuth Consent Screen and ensure your email is added to Test Users."
+                    else -> "Google Sign-In failed (code ${e.statusCode}): ${e.localizedMessage ?: "Unknown error"}"
+                }
+                else -> "Google Sign-In failed: ${e.localizedMessage ?: e.message}"
+            }
+            Toast.makeText(this@MainActivity, errorMessage, Toast.LENGTH_LONG).show()
         }
     }
 

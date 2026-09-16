@@ -35,18 +35,29 @@ To build and run this app with your own Gmail account, you must configure a Goog
 3. Fill in the required app details (App Name, Support Email).
 4. **Important:** If your app is in "Testing" mode, you *must* add your personal Gmail address to the **Test users** list, or you will not be able to log in.
 
-### 3. Create OAuth Client ID (Web / Desktop App)
-Zero Inbox uses standard OAuth 2.0 Web authorization (via AppAuth) rather than device-bound Google Play Services tokens. This allows you to log into any Google account through your default browser with standard consent screens.
+### 3. Create OAuth Client ID (Android Application)
+Zero Inbox uses native Google Play Services Google Sign-In on Android. Google Play Services verifies your app cryptographically using your **Package Name** and **SHA-1 Fingerprint**:
 
 1. Go to **APIs & Services** > **Credentials**.
 2. Click **Create Credentials** > **OAuth client ID**.
-3. Select **Desktop app** (or **Web application**) as the Application type.
-4. Set the **Authorized redirect URI** to:
-   ```text
-   com.example.zeroinbox:/oauth2redirect
-   ```
+3. In the **Application type** dropdown, select **Android** (do *not* choose Desktop app or Web application).
+4. Fill in the fields:
+   * **Name:** `Zero Inbox Android Client`
+   * **Package name:** `com.example.zeroinbox`
+   * **SHA-1 certificate fingerprint:** `D1:4C:EC:9B:48:D5:FB:13:D3:4B:9E:45:3D:32:0F:9C:FA:8F:F3:65`
 5. Click **Create**.
-6. The app comes pre-configured with a default client ID, or you can supply your own client ID in the app settings. When you tap **Sign In With Google (Browser)**, the app opens Chrome Custom Tabs / your browser, where you log into whatever Google account is needed and grant permissions. Upon completion, Google redirects back to `com.example.zeroinbox:/oauth2redirect`, where the app exchanges the code for access and refresh tokens.
+
+> 💡 **Tip for GitHub Actions Builds:** If you built your APK via GitHub Actions before the bundled keystore was present, or using a fallback GitHub runner, create a second Android client ID with the GitHub runner SHA-1 fingerprint:
+> `87:D1:D4:79:4B:29:DD:C4:78:4A:D3:C7:AD:02:E7:E6:51:FB:41:FB`
+> Having both fingerprints registered in Google Cloud Console guarantees sign-in works whether built locally in Android Studio or automatically via GitHub Actions!
+
+### 4. Important: Add Your Email to Test Users
+While your Google Cloud OAuth Consent Screen is in **Testing** status (the default), Google will block any Google account that is not explicitly whitelisted:
+1. Go to **APIs & Services** > **OAuth consent screen**.
+2. Scroll down to **Test users**.
+3. Click **+ ADD USERS**.
+4. Type your Gmail address (the one you are signing into on your phone).
+5. Click **Save**.
 
 ## 🏗️ Building Locally
 

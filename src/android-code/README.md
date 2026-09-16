@@ -34,24 +34,21 @@ To authenticate users and access the Gmail API via Jetpack Credential Manager:
 4. In the **Scopes** section, add: `https://www.googleapis.com/auth/gmail.modify`.
 5. Add your personal Google account under **Test users**.
 
-### Step 3: Create Credentials (Android & Web)
-Modern Jetpack Credential Manager (`androidx.credentials`) requires an Android Client ID paired with a Web Client ID for OAuth token resolution:
+### Step 3: Create Credentials (Android Client ID)
+Zero Inbox uses native Google Play Services Google Sign-In:
 
 1. Go to **APIs & Services > Credentials**.
 2. Click **Create Credentials > OAuth client ID**.
 3. **For Android:**
-   * Select **Android** as Application type.
-   * Name: `0 INBOX Android Client`
+   * Select **Android** as Application type (do NOT select Desktop or Web application).
+   * Name: `Zero Inbox Android Client`
    * Package name: `com.example.zeroinbox`
-   * SHA-1 Certificate Fingerprint: 
-     * *Run `./gradlew signingReport` in Android Studio and copy the debug SHA-1 key.*
+   * SHA-1 Certificate Fingerprint: `D1:4C:EC:9B:48:D5:FB:13:D3:4B:9E:45:3D:32:0F:9C:FA:8F:F3:65`
    * Click **Create**.
-4. **For Web (Required for Credential Manager):**
-   * Click **Create Credentials > OAuth client ID**.
-   * Select **Web application**.
-   * Name: `0 INBOX Web Client`
-   * Click **Create** and copy the generated `Client ID`.
-   * Paste this into `YOUR_WEB_CLIENT_ID` in `AuthManager.kt`.
+4. *(Optional / Recommended for GitHub Actions builds)*:
+   * Create a second Android OAuth client ID with the GitHub runner's SHA-1 fingerprint:
+   * SHA-1: `87:D1:D4:79:4B:29:DD:C4:78:4A:D3:C7:AD:02:E7:E6:51:FB:41:FB`
+   * This guarantees authentication succeeds on any APK built by GitHub Actions.
 
 ---
 

@@ -13,6 +13,7 @@ import viewModelContent from '../android-code/MailViewModel.kt?raw';
 import modelsContent from '../android-code/Models.kt?raw';
 import uiContent from '../android-code/SwipeableMailStack.kt?raw';
 import themeContent from '../android-code/Theme.kt?raw';
+import { KEYSTORE_BASE64 } from '../android-code/keystoreBase64';
 
 interface ExportApkModalProps {
   isOpen: boolean;
@@ -139,6 +140,7 @@ jobs:
       const appFolder = zip.folder('app');
       if (appFolder) {
         appFolder.file('build.gradle.kts', gradleContent);
+        appFolder.file('debug.keystore', KEYSTORE_BASE64, { base64: true });
         appFolder.file('proguard-rules.pro', `# ProGuard rules for ZeroInbox
 -keepattributes *Annotation*
 -keepclassmembers class * {
