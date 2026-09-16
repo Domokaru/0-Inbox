@@ -90,8 +90,7 @@ fun SwipeableMailStack(
     viewModel: MailViewModel,
     isDarkTheme: Boolean = true,
     savedEmail: String = "",
-    savedAppPassword: String = "",
-    onSaveImapCredentials: (String, String) -> Unit = { _, _ -> },
+    onSignInWithGoogle: () -> Unit = {},
     onToggleTheme: (Boolean) -> Unit = {},
     onSignOut: () -> Unit = {}
 ) {
@@ -108,7 +107,6 @@ fun SwipeableMailStack(
     val coroutineScope = rememberCoroutineScope()
     var activePopup by remember { mutableStateOf<PopupAction?>(null) }
     var showSettingsDialog by remember { mutableStateOf(false) }
-    var showImapSetupDialog by remember { mutableStateOf(false) }
     var emailForLabelDialog by remember { mutableStateOf<EmailModel?>(null) }
 
     // Theme-derived palette
@@ -223,13 +221,13 @@ fun SwipeableMailStack(
                     )
                     Spacer(modifier = Modifier.width(4.dp))
                     OutlinedButton(
-                        onClick = { showImapSetupDialog = true },
+                        onClick = onSignInWithGoogle,
                         contentPadding = PaddingValues(horizontal = 6.dp, vertical = 2.dp),
                         border = BorderStroke(1.dp, Color(0xFFEF4444).copy(alpha = 0.5f)),
                         shape = RoundedCornerShape(6.dp)
                     ) {
                         Text(
-                            text = "LOGIN",
+                            text = "SIGN IN",
                             fontSize = 10.sp,
                             fontWeight = FontWeight.Bold,
                             color = Color(0xFFEF4444)
@@ -294,7 +292,7 @@ fun SwipeableMailStack(
                     )
                     Spacer(modifier = Modifier.height(8.dp))
                     Text(
-                        text = "Connect your Gmail account via secure App Password to triage your Gmail inbox with 4-way gesture swipes.",
+                        text = "Sign in with your Google account to grant Gmail access and triage your inbox with 4-way gesture swipes.",
                         fontSize = 12.5.sp,
                         color = if (isDarkTheme) Color(0xFFAAAAAA) else Color(0xFF64748B),
                         textAlign = androidx.compose.ui.text.style.TextAlign.Center,
@@ -302,15 +300,15 @@ fun SwipeableMailStack(
                     )
                     Spacer(modifier = Modifier.height(20.dp))
                     Button(
-                        onClick = { showImapSetupDialog = true },
+                        onClick = onSignInWithGoogle,
                         modifier = Modifier.fillMaxWidth().height(48.dp),
                         shape = RoundedCornerShape(12.dp),
                         colors = ButtonDefaults.buttonColors(containerColor = primaryAccent)
                     ) {
-                        Icon(Icons.Default.Email, contentDescription = null, tint = Color.Black, modifier = Modifier.size(20.dp))
+                        Icon(Icons.Default.AccountCircle, contentDescription = null, tint = Color.Black, modifier = Modifier.size(20.dp))
                         Spacer(modifier = Modifier.width(8.dp))
                         Text(
-                            text = "CONNECT GMAIL (APP PASSWORD)",
+                            text = "SIGN IN WITH GOOGLE",
                             color = Color.Black,
                             fontWeight = FontWeight.Bold,
                             fontSize = 13.sp
@@ -608,20 +606,6 @@ fun SwipeableMailStack(
             }
         }
 
-        // IMAP & App Password Setup Dialog
-        if (showImapSetupDialog) {
-            ImapSetupDialog(
-                isDarkTheme = isDarkTheme,
-                primaryAccent = primaryAccent,
-                initialEmail = savedEmail.ifBlank { currentAccount ?: "" },
-                initialPassword = savedAppPassword,
-                onDismiss = { showImapSetupDialog = false },
-                onSaveCredentials = { email, pass ->
-                    onSaveImapCredentials(email, pass)
-                }
-            )
-        }
-
         // Label Selection Dialog (triggered by Long-Pressing card OR tapping bottom Label button)
         emailForLabelDialog?.let { targetEmail ->
             LabelSelectionDialog(
@@ -650,20 +634,15 @@ fun SwipeableMailStack(
         if (showSettingsDialog) {
             SettingsDialog(
                 currentAccount = currentAccount,
-                savedAppPassword = savedAppPassword,
                 isDemoMode = isDemoMode,
                 isDarkTheme = isDarkTheme,
                 filterTwoDays = filterTwoDays,
                 primaryAccent = primaryAccent,
                 onToggleTheme = onToggleTheme,
                 onToggleFilter = { viewModel.setFilterTwoDays(it) },
-                onSwitchAccount = {
+                onSignInWithGoogle = {
                     showSettingsDialog = false
-                    showImapSetupDialog = true
-                },
-                onShowSetupHelp = {
-                    showSettingsDialog = false
-                    showImapSetupDialog = true
+                    onSignInWithGoogle()
                 },
                 onEnableDemoMode = {
                     showSettingsDialog = false
@@ -901,22 +880,17 @@ private fun showPopupAndClear(
 @Composable
 fun SettingsDialog(
     currentAccount: String?,
-    savedAppPassword: String = "",
     isDemoMode: Boolean,
     isDarkTheme: Boolean,
     filterTwoDays: Boolean,
     primaryAccent: Color,
     onToggleTheme: (Boolean) -> Unit,
     onToggleFilter: (Boolean) -> Unit,
-    onSwitchAccount: () -> Unit,
-    onShowSetupHelp: () -> Unit,
+    onSignInWithGoogle: () -> Unit,
     onEnableDemoMode: () -> Unit,
     onSignOut: () -> Unit,
     onDismiss: () -> Unit
 ) {
-    val context = LocalContext.current
-    val clipboardManager = LocalClipboardManager.current
-
     AlertDialog(
         onDismissRequest = onDismiss,
         title = {
@@ -948,82 +922,23 @@ fun SettingsDialog(
                     color = primaryAccent
                 )
 
-                // Stored App Password Unmasked in Settings Menu
-                if (savedAppPassword.isNotBlank()) {
-                    Spacer(modifier = Modifier.height(10.dp))
-                    Card(
-                        modifier = Modifier.fillMaxWidth(),
-                        colors = CardDefaults.cardColors(
-                            containerColor = if (isDarkTheme) Color(0xFF131722) else Color(0xFFEFF6FF)
-                        ),
-                        border = BorderStroke(1.dp, primaryAccent.copy(alpha = 0.4f)),
-                        shape = RoundedCornerShape(10.dp)
-                    ) {
-                        Column(modifier = Modifier.padding(10.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.SpaceBetween,
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Text(
-                                    text = "STORED APP PASSWORD (UNMASKED)",
-                                    fontSize = 10.5.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    color = primaryAccent
-                                )
-                                TextButton(
-                                    onClick = {
-                                        clipboardManager.setText(AnnotatedString(savedAppPassword))
-                                        Toast.makeText(context, "Copied unmasked App Password!", Toast.LENGTH_SHORT).show()
-                                    },
-                                    contentPadding = PaddingValues(horizontal = 6.dp, vertical = 0.dp)
-                                ) {
-                                    Icon(Icons.Default.ContentCopy, contentDescription = null, tint = primaryAccent, modifier = Modifier.size(12.dp))
-                                    Spacer(modifier = Modifier.width(4.dp))
-                                    Text("COPY", fontSize = 10.5.sp, fontWeight = FontWeight.Bold, color = primaryAccent)
-                                }
-                            }
-                            Text(
-                                text = savedAppPassword,
-                                fontSize = 13.sp,
-                                fontFamily = FontFamily.Monospace,
-                                fontWeight = FontWeight.Bold,
-                                color = if (isDarkTheme) Color(0xFF34D399) else Color(0xFF059669)
-                            )
-                            Text(
-                                text = "Saved on this device for automatic login.",
-                                fontSize = 10.sp,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                        }
-                    }
-                }
-
                 Spacer(modifier = Modifier.height(16.dp))
 
                 // Account Actions
                 Button(
-                    onClick = onSwitchAccount,
+                    onClick = onSignInWithGoogle,
                     modifier = Modifier.fillMaxWidth(),
                     shape = RoundedCornerShape(10.dp),
                     colors = ButtonDefaults.buttonColors(containerColor = primaryAccent)
                 ) {
                     Icon(Icons.Default.AccountCircle, contentDescription = null, tint = Color.Black, modifier = Modifier.size(16.dp))
                     Spacer(modifier = Modifier.width(6.dp))
-                    Text("Connect / Switch Gmail", color = Color.Black, fontWeight = FontWeight.Bold, fontSize = 12.sp)
-                }
-
-                Spacer(modifier = Modifier.height(8.dp))
-
-                OutlinedButton(
-                    onClick = onShowSetupHelp,
-                    modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(10.dp),
-                    border = BorderStroke(1.dp, primaryAccent)
-                ) {
-                    Icon(Icons.Default.Key, contentDescription = null, tint = primaryAccent, modifier = Modifier.size(14.dp))
-                    Spacer(modifier = Modifier.width(6.dp))
-                    Text("IMAP & App Password Setup", color = primaryAccent, fontWeight = FontWeight.SemiBold, fontSize = 12.sp)
+                    Text(
+                        text = if (currentAccount != null) "Switch Google Account" else "Sign in with Google",
+                        color = Color.Black,
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 12.sp
+                    )
                 }
 
                 Spacer(modifier = Modifier.height(8.dp))
@@ -1104,199 +1019,6 @@ fun SettingsDialog(
         confirmButton = {
             TextButton(onClick = onDismiss) {
                 Text("DONE", fontWeight = FontWeight.Bold)
-            }
-        }
-    )
-}
-
-@Composable
-fun ImapSetupDialog(
-    isDarkTheme: Boolean,
-    primaryAccent: Color,
-    initialEmail: String = "",
-    initialPassword: String = "",
-    onDismiss: () -> Unit,
-    onSaveCredentials: (String, String) -> Unit
-) {
-    val context = LocalContext.current
-    val clipboardManager = LocalClipboardManager.current
-    var emailInput by remember(initialEmail) { mutableStateOf(initialEmail) }
-    var passwordInput by remember(initialPassword) { mutableStateOf(initialPassword) }
-    var passwordVisible by remember { mutableStateOf(false) }
-
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Icon(
-                        imageVector = Icons.Default.Email,
-                        contentDescription = null,
-                        tint = primaryAccent,
-                        modifier = Modifier.size(24.dp)
-                    )
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Text(
-                        text = "Connect Gmail",
-                        fontWeight = FontWeight.Bold,
-                        fontSize = 17.sp
-                    )
-                }
-            }
-        },
-        text = {
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .verticalScroll(rememberScrollState())
-                    .padding(vertical = 4.dp),
-                verticalArrangement = Arrangement.spacedBy(12.dp)
-            ) {
-                // Info Banner explaining App Password
-                Card(
-                    modifier = Modifier.fillMaxWidth(),
-                    colors = CardDefaults.cardColors(
-                        containerColor = if (isDarkTheme) Color(0xFF161622) else Color(0xFFF1F5F9)
-                    ),
-                    border = BorderStroke(1.dp, primaryAccent.copy(alpha = 0.5f)),
-                    shape = RoundedCornerShape(10.dp)
-                ) {
-                    Column(modifier = Modifier.padding(10.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Icon(
-                                imageVector = Icons.Default.Lock,
-                                contentDescription = null,
-                                tint = primaryAccent,
-                                modifier = Modifier.size(16.dp)
-                            )
-                            Spacer(modifier = Modifier.width(6.dp))
-                            Text(
-                                text = "GMAIL APP PASSWORD REQUIRED",
-                                fontSize = 11.5.sp,
-                                fontWeight = FontWeight.Bold,
-                                color = primaryAccent
-                            )
-                        }
-                        Text(
-                            text = "To bypass OAuth restrictions, Google allows direct IMAP connections via a 16-character App Password generated in your Google Account.",
-                            fontSize = 11.sp,
-                            lineHeight = 15.sp,
-                            color = if (isDarkTheme) Color(0xFFAAAAAA) else Color(0xFF475569)
-                        )
-                    }
-                }
-
-                // Stored Last Used App Password
-                if (initialPassword.isNotBlank()) {
-                    Card(
-                        modifier = Modifier.fillMaxWidth(),
-                        colors = CardDefaults.cardColors(
-                            containerColor = if (isDarkTheme) Color(0xFF131722) else Color(0xFFEFF6FF)
-                        ),
-                        border = BorderStroke(1.dp, primaryAccent.copy(alpha = 0.35f)),
-                        shape = RoundedCornerShape(8.dp)
-                    ) {
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(10.dp),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                                Text(
-                                    text = "SAVED APP PASSWORD",
-                                    fontSize = 9.5.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    color = primaryAccent
-                                )
-                                Text(
-                                    text = "•••• •••• •••• ••••",
-                                    fontSize = 13.sp,
-                                    fontFamily = FontFamily.Monospace,
-                                    fontWeight = FontWeight.Bold,
-                                    letterSpacing = 2.sp,
-                                    color = if (isDarkTheme) Color.LightGray else Color.DarkGray
-                                )
-                            }
-                            TextButton(
-                                onClick = {
-                                    clipboardManager.setText(AnnotatedString(initialPassword))
-                                    passwordInput = initialPassword
-                                    Toast.makeText(context, "Copied saved App Password to clipboard!", Toast.LENGTH_SHORT).show()
-                                },
-                                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp)
-                            ) {
-                                Icon(Icons.Default.ContentCopy, contentDescription = null, tint = primaryAccent, modifier = Modifier.size(14.dp))
-                                Spacer(modifier = Modifier.width(4.dp))
-                                Text("COPY", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = primaryAccent)
-                            }
-                        }
-                    }
-                }
-
-                // Email Input Field
-                OutlinedTextField(
-                    value = emailInput,
-                    onValueChange = { emailInput = it },
-                    label = { Text("Gmail Address", fontSize = 12.sp) },
-                    placeholder = { Text("example@gmail.com", fontSize = 12.sp) },
-                    leadingIcon = {
-                        Icon(Icons.Default.Email, contentDescription = null, tint = primaryAccent, modifier = Modifier.size(18.dp))
-                    },
-                    singleLine = true,
-                    modifier = Modifier.fillMaxWidth()
-                )
-
-                // Password Input Field
-                OutlinedTextField(
-                    value = passwordInput,
-                    onValueChange = { passwordInput = it },
-                    label = { Text("16-character App Password", fontSize = 12.sp) },
-                    placeholder = { Text("abcd efgh ijkl mnop", fontSize = 12.sp) },
-                    leadingIcon = {
-                        Icon(Icons.Default.Key, contentDescription = null, tint = primaryAccent, modifier = Modifier.size(18.dp))
-                    },
-                    trailingIcon = {
-                        IconButton(onClick = { passwordVisible = !passwordVisible }) {
-                            Icon(
-                                imageVector = if (passwordVisible) Icons.Default.Lock else Icons.Default.Key,
-                                contentDescription = if (passwordVisible) "Hide password" else "Show password",
-                                modifier = Modifier.size(18.dp)
-                            )
-                        }
-                    },
-                    visualTransformation = if (passwordVisible) VisualTransformation.None else PasswordVisualTransformation(),
-                    singleLine = true,
-                    modifier = Modifier.fillMaxWidth()
-                )
-
-            }
-        },
-        dismissButton = {
-            TextButton(onClick = onDismiss) {
-                Text("CANCEL")
-            }
-        },
-        confirmButton = {
-            Button(
-                onClick = {
-                    val email = emailInput.trim()
-                    val pass = passwordInput.trim()
-                    if (email.isBlank() || pass.isBlank()) {
-                        Toast.makeText(context, "Please enter your Gmail and App Password", Toast.LENGTH_SHORT).show()
-                    } else {
-                        onSaveCredentials(email, pass)
-                        onDismiss()
-                    }
-                },
-                colors = ButtonDefaults.buttonColors(containerColor = primaryAccent)
-            ) {
-                Text("CONNECT GMAIL", color = Color.Black, fontWeight = FontWeight.Bold, fontSize = 12.sp)
             }
         }
     )

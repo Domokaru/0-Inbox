@@ -88,20 +88,13 @@ android {
             excludes += "**/NOTICE"
             excludes += "**/LICENSE"
 
-            // Retain required JavaMail runtime protocol mapping resources
-            pickFirsts += "META-INF/mailcap"
-            pickFirsts += "META-INF/mailcap.default"
-            pickFirsts += "META-INF/mimetypes.default"
-            pickFirsts += "META-INF/javamail.default.providers"
-            pickFirsts += "META-INF/javamail.default.address.map"
-            pickFirsts += "META-INF/javamail.charset.map"
         }
     }
 }
 
 dependencies {
-    implementation("com.sun.mail:android-mail:1.6.7")
-    implementation("com.sun.mail:android-activation:1.6.7")
+    // Google Play Services Auth for Google Sign-In & OAuth2 Gmail Scope
+    implementation("com.google.android.gms:play-services-auth:21.2.0")
 
     implementation("androidx.core:core-ktx:1.12.0")
     implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.8.2")

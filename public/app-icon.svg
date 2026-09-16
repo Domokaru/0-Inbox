@@ -1,25 +1,135 @@
-<svg width="512" height="512" viewBox="0 0 512 512" xmlns="http://www.w3.org/2000/svg">
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
   <defs>
-    <linearGradient id="neonGradient" x1="0%" y1="100%" x2="100%" y2="0%">
-      <stop offset="0%" stop-color="#FF3366" />
-      <stop offset="50%" stop-color="#FF00FF" />
-      <stop offset="100%" stop-color="#00FFFF" />
+    <!-- Cool neon gradient: pink → purple → blue → aqua → teal -->
+    <linearGradient id="neonGradient" x1="90" y1="180" x2="930" y2="850" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#ff16d1"/>
+      <stop offset="22%" stop-color="#bb22ff"/>
+      <stop offset="47%" stop-color="#3156ff"/>
+      <stop offset="72%" stop-color="#00d9ff"/>
+      <stop offset="100%" stop-color="#00e0c6"/>
     </linearGradient>
-    <filter id="neonGlow" x="-20%" y="-20%" width="140%" height="140%">
-      <feGaussianBlur stdDeviation="8" result="blur" />
+
+    <linearGradient id="neonGradientReverse" x1="120" y1="780" x2="900" y2="250" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#3156ff"/>
+      <stop offset="22%" stop-color="#9a2cff"/>
+      <stop offset="45%" stop-color="#ff20d5"/>
+      <stop offset="68%" stop-color="#00d9ff"/>
+      <stop offset="100%" stop-color="#00e0c6"/>
+    </linearGradient>
+
+    <!-- Layered neon bloom -->
+    <filter id="neonGlow" x="-45%" y="-45%" width="190%" height="190%">
+      <feGaussianBlur stdDeviation="24" result="blur1"/>
+      <feGaussianBlur in="SourceGraphic" stdDeviation="8" result="blur2"/>
       <feMerge>
-        <feMergeNode in="blur" />
-        <feMergeNode in="SourceGraphic" />
+        <feMergeNode in="blur1"/>
+        <feMergeNode in="blur2"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+
+    <filter id="softGlow" x="-35%" y="-35%" width="170%" height="170%">
+      <feGaussianBlur stdDeviation="12" result="blur"/>
+      <feMerge>
+        <feMergeNode in="blur"/>
+        <feMergeNode in="SourceGraphic"/>
       </feMerge>
     </filter>
   </defs>
 
-  <rect x="64" y="64" width="384" height="384" rx="100" ry="100" 
-        fill="none" stroke="url(#neonGradient)" stroke-width="24" filter="url(#neonGlow)" />
-        
-  <path d="M140 160 h232 c22 0 40 18 40 40 v112 c0 22 -18 40 -40 40 h-232 c-22 0 -40 -18 -40 -40 v-112 c0 -22 18 -40 40 -40 z" 
-        fill="none" stroke="#00FFFF" stroke-width="24" stroke-linejoin="round" filter="url(#neonGlow)" />
-        
-  <path d="M100 200 L243 295 C250 300 262 300 269 295 L412 200" 
-        fill="none" stroke="#00FFFF" stroke-width="24" stroke-linecap="round" stroke-linejoin="round" filter="url(#neonGlow)" />
+  <!-- transparent background -->
+
+  <!-- OUTER ENVELOPE: colored glow underlay -->
+  <rect x="108" y="205" width="808" height="614" rx="82"
+        fill="none"
+        stroke="url(#neonGradient)"
+        stroke-width="66"
+        stroke-linejoin="round"
+        filter="url(#neonGlow)"/>
+
+  <!-- OUTER ENVELOPE: crisp color tube -->
+  <rect x="108" y="205" width="808" height="614" rx="82"
+        fill="none"
+        stroke="url(#neonGradient)"
+        stroke-width="44"
+        stroke-linejoin="round"/>
+
+  <!-- OUTER ENVELOPE: white-hot core -->
+  <rect x="108" y="205" width="808" height="614" rx="82"
+        fill="none"
+        stroke="#ffffff"
+        stroke-width="16"
+        stroke-linejoin="round"
+        filter="url(#softGlow)"/>
+
+  <!-- Main flap / stylized M: extra-thick -->
+  <path d="M145 270
+           L512 600
+           L879 270"
+        fill="none"
+        stroke="url(#neonGradient)"
+        stroke-width="92"
+        stroke-linecap="round"
+        stroke-linejoin="round"
+        filter="url(#neonGlow)"/>
+
+  <path d="M145 270
+           L512 600
+           L879 270"
+        fill="none"
+        stroke="url(#neonGradient)"
+        stroke-width="64"
+        stroke-linecap="round"
+        stroke-linejoin="round"/>
+
+  <path d="M145 270
+           L512 600
+           L879 270"
+        fill="none"
+        stroke="#ffffff"
+        stroke-width="18"
+        stroke-linecap="round"
+        stroke-linejoin="round"
+        filter="url(#softGlow)"/>
+
+  <!-- Lower folded-envelope M legs -->
+  <path d="M145 760
+           L340 575
+           M879 760
+           L684 575"
+        fill="none"
+        stroke="url(#neonGradientReverse)"
+        stroke-width="78"
+        stroke-linecap="round"
+        stroke-linejoin="round"
+        filter="url(#neonGlow)"/>
+
+  <path d="M145 760
+           L340 575
+           M879 760
+           L684 575"
+        fill="none"
+        stroke="url(#neonGradientReverse)"
+        stroke-width="54"
+        stroke-linecap="round"
+        stroke-linejoin="round"/>
+
+  <path d="M145 760
+           L340 575
+           M879 760
+           L684 575"
+        fill="none"
+        stroke="#ffffff"
+        stroke-width="16"
+        stroke-linecap="round"
+        filter="url(#softGlow)"/>
+
+  <!-- subtle inner lower fold for dimensional envelope look -->
+  <path d="M250 790 L430 622
+           M774 790 L594 622"
+        fill="none"
+        stroke="url(#neonGradient)"
+        stroke-width="22"
+        stroke-linecap="round"
+        opacity="0.88"/>
 </svg>

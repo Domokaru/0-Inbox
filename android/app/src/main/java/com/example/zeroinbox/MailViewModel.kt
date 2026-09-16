@@ -9,9 +9,9 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 
 /**
- * Manages email triage state and interaction with the IMAP Mail Repository.
+ * Manages email triage state and interaction with the Gmail Repository.
  */
-class MailViewModel(private val repository: ImapMailRepository) : ViewModel() {
+class MailViewModel(private val repository: GmailRepository) : ViewModel() {
 
     private val _emails = MutableStateFlow<List<EmailModel>>(emptyList())
     val emails: StateFlow<List<EmailModel>> = _emails.asStateFlow()
@@ -98,12 +98,13 @@ class MailViewModel(private val repository: ImapMailRepository) : ViewModel() {
         var depth = 0
         while (current != null && depth < 10) {
             val msgLower = (current.message ?: "").lowercase()
-            val className = current.javaClass.simpleName.lowercase()
-            if (className.contains("authenticationfailed") ||
-                msgLower.contains("authenticationfailed") ||
-                msgLower.contains("invalid credentials") ||
-                msgLower.contains("535") ||
-                msgLower.contains("username and password not accepted")
+            if (msgLower.contains("401") ||
+                msgLower.contains("403") ||
+                msgLower.contains("unauthorized") ||
+                msgLower.contains("oauth") ||
+                msgLower.contains("not signed in") ||
+                msgLower.contains("invalid_grant") ||
+                msgLower.contains("token")
             ) {
                 return true
             }
@@ -121,17 +122,17 @@ class MailViewModel(private val repository: ImapMailRepository) : ViewModel() {
         while (current != null && depth < 10) {
             val msg = current.message
             val msgLower = (msg ?: "").lowercase()
-            if (msgLower.contains("authenticationfailed") || msgLower.contains("invalid credentials") || msgLower.contains("535") || msgLower.contains("username and password not accepted")) {
-                return "Gmail Authentication Failed: Please verify your Google App Password (16 characters, generated in your Google Account > Security > 2-Step Verification > App Passwords)."
+            if (msgLower.contains("not signed in") || msgLower.contains("no google account")) {
+                return "Google Sign-In required: Please sign in with your Google account."
             }
-            if (msgLower.contains("imap is disabled") || msgLower.contains("enable imap")) {
-                return "IMAP is disabled for this account: Open Gmail Settings > Forwarding and POP/IMAP, and choose 'Enable IMAP'."
+            if (msgLower.contains("401") || msgLower.contains("unauthorized") || msgLower.contains("invalid_grant")) {
+                return "Google OAuth Session Expired: Please re-authenticate your Google Account."
+            }
+            if (msgLower.contains("403") || msgLower.contains("access denied")) {
+                return "Gmail Permission Denied: Ensure gmail.modify scope is granted for this app in Google Cloud Console."
             }
             if (msgLower.contains("timeout") || msgLower.contains("timed out")) {
-                return "Connection Timed Out: Please check your internet connection and verify imap.gmail.com port 993 is accessible."
-            }
-            if (msgLower.contains("no google app password") || msgLower.contains("no gmail address")) {
-                return msg ?: "Please enter your Gmail address and 16-character App Password in Settings."
+                return "Connection Timed Out: Please check your internet connection."
             }
             if (!msg.isNullOrBlank() && fallbackMsg == null) {
                 fallbackMsg = msg
@@ -140,7 +141,7 @@ class MailViewModel(private val repository: ImapMailRepository) : ViewModel() {
             depth++
         }
 
-        return fallbackMsg ?: throwable?.localizedMessage ?: "Unable to sync with Gmail IMAP. Please check your connection."
+        return fallbackMsg ?: throwable?.localizedMessage ?: "Unable to sync with Gmail API. Please check your connection."
     }
 
     fun retryAuth() {
@@ -297,7 +298,7 @@ data class LastSwipeAction(
 
 enum class SwipeDirection { LEFT, RIGHT, UP, DOWN }
 
-class MailViewModelFactory(private val repository: ImapMailRepository) : ViewModelProvider.Factory {
+class MailViewModelFactory(private val repository: GmailRepository) : ViewModelProvider.Factory {
     override fun <T : ViewModel> create(modelClass: Class<T>): T {
         if (modelClass.isAssignableFrom(MailViewModel::class.java)) {
             @Suppress("UNCHECKED_CAST")

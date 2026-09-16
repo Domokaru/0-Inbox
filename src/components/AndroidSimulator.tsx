@@ -25,23 +25,12 @@ import {
   ShieldCheck,
   AlertCircle,
   Radio,
-  Key,
-  Copy,
   HelpCircle,
 } from 'lucide-react';
 import type { User } from 'firebase/auth';
 import PixelTitle from './PixelTitle';
 import GoogleSignInButton from './GoogleSignInButton';
 import DestructiveConfirmModal from './DestructiveConfirmModal';
-import ImapSetupModal from './ImapSetupModal';
-import {
-  getStoredImapCredentials,
-  clearImapCredentials,
-  getLastUsedAppPassword,
-  fetchImapEmails,
-  performImapAction,
-  undoImapAction,
-} from '../services/imapService';
 import {
   googleSignIn,
   logout,
@@ -228,24 +217,14 @@ export default function AndroidSimulator({
   const [showLoginPrompt, setShowLoginPrompt] = useState(false);
   const [hasDismissedLoginPrompt, setHasDismissedLoginPrompt] = useState(false);
 
-  // Custom IMAP Mode state (bypasses Google OAuth 403 blocks)
-  const [showImapModal, setShowImapModal] = useState(false);
-  const [isImapMode, setIsImapMode] = useState(false);
-  const [connectedImapEmail, setConnectedImapEmail] = useState<string | null>(null);
-  const [storedImapPassword, setStoredImapPassword] = useState<string | null>(() => {
-    return getLastUsedAppPassword() || getStoredImapCredentials()?.appPassword || null;
-  });
-  const [copiedStoredPassword, setCopiedStoredPassword] = useState(false);
-
   useEffect(() => {
     if (hasDismissedLoginPrompt) return;
-    const creds = getStoredImapCredentials();
-    if (hasCheckedAuth && !currentUser && !creds?.email) {
+    if (hasCheckedAuth && !currentUser) {
       setShowLoginPrompt(true);
-    } else if (currentUser || creds?.email) {
+    } else if (currentUser) {
       setShowLoginPrompt(false);
     }
-  }, [hasCheckedAuth, currentUser, connectedImapEmail, hasDismissedLoginPrompt]);
+  }, [hasCheckedAuth, currentUser, hasDismissedLoginPrompt]);
 
   // Destructive Confirmation Modal state (required by Workspace policy)
   const [destructiveModal, setDestructiveModal] = useState<{
@@ -368,94 +347,12 @@ export default function AndroidSimulator({
     [filterTwoDays]
   );
 
-  // Load real IMAP emails (bypasses Google OAuth 403 blocks)
-  const loadRealImapData = useCallback(
-    async (email: string, appPassword: string) => {
-      setIsLoadingEmails(true);
-      setAuthError(null);
-      try {
-        const messages = await fetchImapEmails(email, appPassword, filterTwoDays);
-        if (messages && messages.length > 0) {
-          const formatted: MockEmail[] = messages.map((m) => ({
-            id: m.id,
-            uid: m.uid,
-            sender: m.sender,
-            subject: m.subject,
-            snippet: m.snippet,
-            category: m.category || 'Primary',
-            isReal: true,
-          }));
-          setEmails(formatted);
-          setHasMore(false);
-        } else {
-          setEmails([]);
-          setHasMore(false);
-        }
-        setIsLiveGmailMode(true);
-        setIsImapMode(true);
-        setConnectedImapEmail(email);
-        setShowLoginPrompt(false);
-        const now = new Date();
-        setLastRefreshedTime(
-          `${now.getHours().toString().padStart(2, '0')}:${now.getMinutes().toString().padStart(2, '0')}`
-        );
-      } catch (err: any) {
-        const isAuthFailed =
-          err.isAuthFailed ||
-          (err.message &&
-            (err.message.includes('AUTHENTICATIONFAILED') ||
-              err.message.includes('Invalid credentials') ||
-              err.message.includes('authentication')));
-
-        const errorMsg =
-          err.message ||
-          'Gmail authentication failed. Please verify your 16-character Google App Password.';
-        setAuthError(errorMsg);
-
-        // Switch cleanly to demo emails so the user can test the UI without being locked out
-        setIsImapMode(false);
-        setIsLiveGmailMode(false);
-        setEmails(INITIAL_DEMO_EMAILS);
-
-        // Clear invalid stored credentials so the app doesn't repeatedly auto-retry with bad credentials
-        if (isAuthFailed) {
-          clearImapCredentials();
-        }
-      } finally {
-        setIsLoadingEmails(false);
-      }
-    },
-    [filterTwoDays]
-  );
-
   const handleSwitchToDemo = () => {
-    setIsImapMode(false);
     setIsLiveGmailMode(false);
     setAuthError(null);
     setEmails(INITIAL_DEMO_EMAILS);
     setBatchCount(1);
     setHasMore(true);
-  };
-
-  // Auto-connect with stored IMAP credentials if available
-  useEffect(() => {
-    const creds = getStoredImapCredentials();
-    if (creds?.email && creds?.appPassword) {
-      setIsImapMode(true);
-      setConnectedImapEmail(creds.email);
-      loadRealImapData(creds.email, creds.appPassword);
-      setHasCheckedAuth(true);
-    }
-  }, [loadRealImapData]);
-
-  const handleImapSuccess = async (email: string, appPassword: string) => {
-    setIsImapMode(true);
-    setConnectedImapEmail(email);
-    setStoredImapPassword(appPassword);
-    setHasDismissedLoginPrompt(true);
-    setShowLoginPrompt(false);
-    setShowSettings(false);
-    await loadRealImapData(email, appPassword);
   };
 
   // Initialize Firebase Auth listener
@@ -487,10 +384,11 @@ export default function AndroidSimulator({
         setCurrentUser(result.user);
         setAccessToken(result.accessToken);
         await loadRealGmailData(result.accessToken);
+        setShowLoginPrompt(false);
+        setShowSettings(false);
       }
     } catch (err: any) {
       console.error('Sign-in failed:', err);
-      // Ignore when user simply closes the popup
       if (err.code !== 'auth/popup-closed-by-user' && !err.message?.includes('popup-closed-by-user')) {
         setAuthError(err.message || 'Google Sign-In failed');
       }
@@ -499,26 +397,14 @@ export default function AndroidSimulator({
     }
   };
 
-  // Logout handler (clears both IMAP credentials and Google OAuth session)
+  // Logout handler (clears Google OAuth session)
   const handleGoogleLogout = async () => {
-    clearImapCredentials();
-    setConnectedImapEmail(null);
-    setStoredImapPassword(null);
-    setIsImapMode(false);
     await logout();
     setCurrentUser(null);
     setAccessToken(null);
     setIsLiveGmailMode(false);
     setEmails(INITIAL_DEMO_EMAILS);
     setAccountLabels(DEFAULT_ACCOUNT_LABELS);
-  };
-
-  const handleCopyStoredPassword = () => {
-    if (storedImapPassword) {
-      navigator.clipboard.writeText(storedImapPassword);
-      setCopiedStoredPassword(true);
-      setTimeout(() => setCopiedStoredPassword(false), 3000);
-    }
   };
 
   // Refresh labels
@@ -588,40 +474,25 @@ export default function AndroidSimulator({
       setActivePopup(null);
     }, 700);
 
-    // 2. Perform live Gmail action if connected (via IMAP or OAuth)
-    if (email.isReal) {
-      if (isImapMode && email.uid) {
-        const creds = getStoredImapCredentials();
-        if (creds) {
-          const actionMap: Record<SwipeDirection, 'archive' | 'trash' | 'read' | 'star'> = {
-            RIGHT: 'archive',
-            LEFT: 'trash',
-            DOWN: 'read',
-            UP: 'star',
-          };
-          performImapAction(creds.email, creds.appPassword, email.uid, actionMap[direction]).catch(
-            (err) => console.warn('IMAP Action sync notice:', err?.message || err)
-          );
-        }
-      } else if (accessToken) {
-        const threadId = email.threadId || email.id;
-        if (direction === 'RIGHT') {
-          archiveGmailThread(accessToken, threadId).catch((err) =>
-            console.warn('Gmail action notice:', err?.message || err)
-          );
-        } else if (direction === 'LEFT') {
-          trashGmailThread(accessToken, threadId).catch((err) =>
-            console.warn('Gmail action notice:', err?.message || err)
-          );
-        } else if (direction === 'DOWN') {
-          markGmailThreadRead(accessToken, threadId).catch((err) =>
-            console.warn('Gmail action notice:', err?.message || err)
-          );
-        } else if (direction === 'UP') {
-          applyNeedsResponseLabel(accessToken, threadId).catch((err) =>
-            console.warn('Gmail action notice:', err?.message || err)
-          );
-        }
+    // 2. Perform live Gmail action if connected via OAuth
+    if (email.isReal && accessToken) {
+      const threadId = email.threadId || email.id;
+      if (direction === 'RIGHT') {
+        archiveGmailThread(accessToken, threadId).catch((err) =>
+          console.warn('Gmail action notice:', err?.message || err)
+        );
+      } else if (direction === 'LEFT') {
+        trashGmailThread(accessToken, threadId).catch((err) =>
+          console.warn('Gmail action notice:', err?.message || err)
+        );
+      } else if (direction === 'DOWN') {
+        markGmailThreadRead(accessToken, threadId).catch((err) =>
+          console.warn('Gmail action notice:', err?.message || err)
+        );
+      } else if (direction === 'UP') {
+        applyNeedsResponseLabel(accessToken, threadId).catch((err) =>
+          console.warn('Gmail action notice:', err?.message || err)
+        );
       }
     }
 
@@ -702,41 +573,29 @@ export default function AndroidSimulator({
   const handleUndo = () => {
     if (!lastAction) return;
 
-    // Perform live reverse Gmail action if connected (via IMAP or OAuth)
-    if (lastAction.email.isReal) {
-      if (isImapMode && lastAction.email.uid) {
-        const creds = getStoredImapCredentials();
-        if (creds && (lastAction.direction === 'LEFT' || lastAction.direction === 'RIGHT')) {
-          undoImapAction(
-            creds.email,
-            creds.appPassword,
-            lastAction.email.uid,
-            lastAction.direction === 'LEFT' ? 'trash' : 'archive'
-          ).catch((err) => console.warn('IMAP Undo action notice:', err?.message || err));
-        }
-      } else if (accessToken) {
-        const threadId = lastAction.email.threadId || lastAction.email.id;
-        if (lastAction.direction === 'RIGHT') {
-          unarchiveGmailThread(accessToken, threadId).catch((err) =>
-            console.warn('Gmail undo notice:', err?.message || err)
-          );
-        } else if (lastAction.direction === 'LEFT') {
-          untrashGmailThread(accessToken, threadId).catch((err) =>
-            console.warn('Gmail undo notice:', err?.message || err)
-          );
-        } else if (lastAction.direction === 'DOWN') {
-          markGmailThreadUnread(accessToken, threadId).catch((err) =>
-            console.warn('Gmail undo notice:', err?.message || err)
-          );
-        } else if (lastAction.direction === 'UP') {
-          removeNeedsResponseLabel(accessToken, threadId).catch((err) =>
-            console.warn('Gmail undo notice:', err?.message || err)
-          );
-        } else if (lastAction.customLabelId) {
-          unapplyCustomLabelFromThread(accessToken, threadId, lastAction.customLabelId).catch((err) =>
-            console.warn('Gmail undo notice:', err?.message || err)
-          );
-        }
+    // Perform live reverse Gmail action if connected via OAuth
+    if (lastAction.email.isReal && accessToken) {
+      const threadId = lastAction.email.threadId || lastAction.email.id;
+      if (lastAction.direction === 'RIGHT') {
+        unarchiveGmailThread(accessToken, threadId).catch((err) =>
+          console.warn('Gmail undo notice:', err?.message || err)
+        );
+      } else if (lastAction.direction === 'LEFT') {
+        untrashGmailThread(accessToken, threadId).catch((err) =>
+          console.warn('Gmail undo notice:', err?.message || err)
+        );
+      } else if (lastAction.direction === 'DOWN') {
+        markGmailThreadUnread(accessToken, threadId).catch((err) =>
+          console.warn('Gmail undo notice:', err?.message || err)
+        );
+      } else if (lastAction.direction === 'UP') {
+        removeNeedsResponseLabel(accessToken, threadId).catch((err) =>
+          console.warn('Gmail undo notice:', err?.message || err)
+        );
+      } else if (lastAction.customLabelId) {
+        unapplyCustomLabelFromThread(accessToken, threadId, lastAction.customLabelId).catch((err) =>
+          console.warn('Gmail undo notice:', err?.message || err)
+        );
       }
     }
 
@@ -746,13 +605,6 @@ export default function AndroidSimulator({
   };
 
   const handleFetchNextBatch = async () => {
-    if (isImapMode) {
-      const creds = getStoredImapCredentials();
-      if (creds) {
-        await loadRealImapData(creds.email, creds.appPassword);
-      }
-      return;
-    }
     if (isLiveGmailMode && accessToken) {
       setIsLoadingEmails(true);
       try {
@@ -918,7 +770,7 @@ export default function AndroidSimulator({
 
             {/* Gmail Connection Badge */}
             <div className="mt-1 flex items-center gap-1.5">
-              {isLiveGmailMode && (connectedImapEmail || currentUser) && (
+              {isLiveGmailMode && currentUser && (
                 <div
                   className={`flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[10px] font-medium border ${
                     isDarkTheme
@@ -927,7 +779,7 @@ export default function AndroidSimulator({
                   }`}
                 >
                   <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
-                  <span className="truncate max-w-[170px]">{connectedImapEmail || currentUser?.email}</span>
+                  <span className="truncate max-w-[170px]">{currentUser.email}</span>
                 </div>
               )}
             </div>
@@ -1011,22 +863,7 @@ export default function AndroidSimulator({
                     <span>Confetti</span>
                   </button>
 
-                  {isImapMode ? (
-                    <button
-                      onClick={() => {
-                        const creds = getStoredImapCredentials();
-                        if (creds) loadRealImapData(creds.email, creds.appPassword);
-                      }}
-                      className="px-3 py-1.5 rounded-xl border text-xs font-semibold flex items-center gap-1.5 transition-all active:scale-95 shadow-sm cursor-pointer"
-                      style={{
-                        backgroundColor: `${primaryAccent}18`,
-                        borderColor: `${primaryAccent}45`,
-                        color: primaryAccent,
-                      }}
-                    >
-                      <span>Check New Mail</span>
-                    </button>
-                  ) : isLiveGmailMode && accessToken ? (
+                  {isLiveGmailMode && accessToken ? (
                     <button
                       onClick={() => loadRealGmailData(accessToken)}
                       className="px-3 py-1.5 rounded-xl border text-xs font-semibold flex items-center gap-1.5 transition-all active:scale-95 shadow-sm cursor-pointer"
@@ -1036,7 +873,7 @@ export default function AndroidSimulator({
                         color: primaryAccent,
                       }}
                     >
-                      <span>More Email?</span>
+                      <span>Check New Mail</span>
                     </button>
                   ) : hasMore ? (
                     <button
@@ -1445,7 +1282,7 @@ export default function AndroidSimulator({
                         <label className="text-xs font-semibold text-gray-400 block mb-2 uppercase tracking-wider">
                           Gmail Integration
                         </label>
-                        {isLiveGmailMode && (connectedImapEmail || currentUser) ? (
+                        {isLiveGmailMode && currentUser ? (
                           <div
                             className={`p-3 rounded-2xl border ${
                               isDarkTheme
@@ -1456,10 +1293,10 @@ export default function AndroidSimulator({
                             <div className="overflow-hidden">
                               <div className="flex items-center gap-1.5 text-xs font-bold text-emerald-400">
                                 <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
-                                <span>Connected ({isImapMode ? 'IMAP' : 'OAuth'})</span>
+                                <span>Connected (Google OAuth)</span>
                               </div>
                               <p className="text-xs text-gray-400 truncate mt-0.5 font-mono">
-                                {connectedImapEmail || currentUser?.email}
+                                {currentUser.email}
                               </p>
                             </div>
                             <button
@@ -1471,56 +1308,13 @@ export default function AndroidSimulator({
                             </button>
                           </div>
                         ) : (
-                          <div className="space-y-2.5">
-                            <button
-                              onClick={() => {
-                                setShowSettings(false);
-                                setShowImapModal(true);
-                              }}
-                              className="w-full py-2.5 px-4 rounded-xl text-xs font-bold uppercase tracking-wider bg-cyan-400 hover:bg-cyan-300 text-black shadow-lg shadow-cyan-500/20 flex items-center justify-center gap-2 cursor-pointer transition-all active:scale-98"
-                            >
-                              <Key size={14} />
-                              <span>Connect Gmail</span>
-                            </button>
-                          </div>
-                        )}
-
-                        {/* Stored App Password Unmasked in Settings as requested by user */}
-                        {storedImapPassword && (
-                          <div
-                            className={`p-3 rounded-2xl border ${
-                              isDarkTheme ? 'bg-[#101018] border-cyan-500/25' : 'bg-cyan-50/60 border-cyan-200'
-                            } space-y-1.5 mt-2`}
-                          >
-                            <div className="flex items-center justify-between">
-                              <span className="text-[10px] font-bold uppercase tracking-wider text-cyan-400 flex items-center gap-1.5">
-                                <Key size={12} />
-                                <span>Stored App Password (Unmasked)</span>
-                              </span>
-                              <button
-                                onClick={handleCopyStoredPassword}
-                                className="px-2 py-0.5 rounded-lg text-[10px] font-bold text-cyan-400 hover:bg-cyan-400/20 border border-cyan-400/30 flex items-center gap-1 cursor-pointer transition-colors"
-                                title="Copy unmasked password"
-                              >
-                                {copiedStoredPassword ? <Check size={10} /> : <Copy size={10} />}
-                                <span>{copiedStoredPassword ? 'Copied' : 'Copy'}</span>
-                              </button>
-                            </div>
-                            <div className="p-2 rounded-xl bg-black/40 border border-white/10 font-mono text-xs font-bold text-emerald-400 tracking-wider select-all break-all">
-                              {storedImapPassword}
-                            </div>
-                            <div className="flex items-center justify-between text-[10px] text-gray-400">
-                              <span>Remembered on device for auto-login</span>
-                              <button
-                                onClick={() => {
-                                  setShowSettings(false);
-                                  setShowImapModal(true);
-                                }}
-                                className="text-cyan-400 hover:underline font-semibold cursor-pointer"
-                              >
-                                Edit / Change
-                              </button>
-                            </div>
+                          <div className="space-y-2.5 flex justify-center">
+                            <GoogleSignInButton
+                              onClick={handleGoogleSignIn}
+                              isLoading={isSigningInGoogle}
+                              label="Sign in with Google"
+                              variant="primary"
+                            />
                           </div>
                         )}
                       </div>
@@ -1730,27 +1524,17 @@ export default function AndroidSimulator({
                   : 'bg-white border-slate-200 text-slate-800'
               }`}
             >
-              <div className="flex justify-center">
-                <div className={`p-4 rounded-2xl ${isDarkTheme ? 'bg-[#1C1C28]' : 'bg-slate-100'}`}>
-                  <Mail size={40} className={isDarkTheme ? 'text-[#00FFFF]' : 'text-[#0EA5E9]'} />
-                </div>
-              </div>
-              <div className="text-center">
-                <h2 className="text-2xl font-bold tracking-tight">Welcome to 0 INBOX</h2>
+              <div className="flex justify-center mb-6">
+                <img src="/app-icon.svg" alt="0 Inbox Logo" className="w-24 h-24" />
               </div>
 
-              <div className="pt-2 space-y-3">
-                <button
-                  onClick={() => {
-                    setHasDismissedLoginPrompt(true);
-                    setShowLoginPrompt(false);
-                    setShowImapModal(true);
-                  }}
-                  className="w-full py-3.5 px-4 rounded-2xl text-xs font-bold uppercase tracking-wider bg-cyan-400 hover:bg-cyan-300 text-black shadow-lg shadow-cyan-500/25 flex items-center justify-center gap-2 cursor-pointer transition-all active:scale-98"
-                >
-                  <Key size={16} />
-                  <span>Connect Gmail</span>
-                </button>
+              <div className="pt-2 flex flex-col items-center space-y-5">
+                <GoogleSignInButton
+                  onClick={handleGoogleSignIn}
+                  isLoading={isSigningInGoogle}
+                  label="Sign in with Google"
+                  variant="primary"
+                />
 
                 {/* Fallback for testing UI without login */}
                 <button
@@ -1769,17 +1553,6 @@ export default function AndroidSimulator({
           </motion.div>
         )}
       </AnimatePresence>
-
-      {/* Gmail App Password Setup Modal */}
-      <ImapSetupModal
-        isOpen={showImapModal}
-        onClose={() => setShowImapModal(false)}
-        onSuccess={handleImapSuccess}
-        isDarkTheme={isDarkTheme}
-        initialEmail={connectedImapEmail || currentUser?.email || 'ben.hallauer@gmail.com'}
-        initialError={authError}
-        onSwitchToDemo={handleSwitchToDemo}
-      />
     </div>
   );
 }

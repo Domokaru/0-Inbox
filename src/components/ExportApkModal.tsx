@@ -7,9 +7,10 @@ import readmeContent from '../android-code/README.md?raw';
 import gradleContent from '../android-code/build.gradle.kts?raw';
 import manifestContent from '../android-code/AndroidManifest.xml?raw';
 import mainActivityContent from '../android-code/MainActivity.kt?raw';
-import authManagerContent from '../android-code/AuthManager.kt?raw';
+import googleAuthManagerContent from '../android-code/GoogleAuthManager.kt?raw';
 import repositoryContent from '../android-code/GmailRepository.kt?raw';
 import viewModelContent from '../android-code/MailViewModel.kt?raw';
+import modelsContent from '../android-code/Models.kt?raw';
 import uiContent from '../android-code/SwipeableMailStack.kt?raw';
 import themeContent from '../android-code/Theme.kt?raw';
 
@@ -159,9 +160,10 @@ jobs:
           const pkgFolder = mainFolder.folder('java')?.folder('com')?.folder('example')?.folder('zeroinbox');
           if (pkgFolder) {
             pkgFolder.file('MainActivity.kt', mainActivityContent);
-            pkgFolder.file('AuthManager.kt', authManagerContent);
+            pkgFolder.file('GoogleAuthManager.kt', googleAuthManagerContent);
             pkgFolder.file('GmailRepository.kt', repositoryContent);
             pkgFolder.file('MailViewModel.kt', viewModelContent);
+            pkgFolder.file('Models.kt', modelsContent);
 
             const uiFolder = pkgFolder.folder('ui');
             uiFolder?.file('SwipeableMailStack.kt', uiContent);
