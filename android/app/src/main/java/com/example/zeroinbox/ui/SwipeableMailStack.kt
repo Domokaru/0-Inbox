@@ -97,7 +97,6 @@ fun SwipeableMailStack(
     val errorMessage by viewModel.errorMessage.collectAsState()
 
     val coroutineScope = rememberCoroutineScope()
-    val snackbarHostState = remember { SnackbarHostState() }
     var activePopup by remember { mutableStateOf<PopupAction?>(null) }
     var showSettingsDialog by remember { mutableStateOf(false) }
     var showImapSetupDialog by remember { mutableStateOf(false) }
@@ -379,21 +378,6 @@ fun SwipeableMailStack(
                             showPopupAndClear(direction, isDarkTheme, coroutineScope) { activePopup = it }
                         }
                         viewModel.processEmailSwipe(email, direction)
-
-                        val actionLabel = when (direction) {
-                            SwipeDirection.RIGHT -> "Archived"
-                            SwipeDirection.LEFT -> "Deleted"
-                            SwipeDirection.UP -> "Marked 'Needs Response'"
-                            SwipeDirection.DOWN -> "Marked as read"
-                        }
-
-                        coroutineScope.launch {
-                            snackbarHostState.currentSnackbarData?.dismiss()
-                            snackbarHostState.showSnackbar(
-                                message = "$actionLabel email from ${email.sender}",
-                                duration = SnackbarDuration.Short
-                            )
-                        }
                     },
                     onLongPress = {
                         emailForLabelDialog = email
@@ -591,29 +575,6 @@ fun SwipeableMailStack(
             NeonIconOnlyPopup(popup = popup)
         }
 
-        // Material 3 Neon / Pastel Snackbar with Undo Button
-        SnackbarHost(
-            hostState = snackbarHostState,
-            modifier = Modifier
-                .align(Alignment.BottomCenter)
-                .padding(bottom = 20.dp, start = 16.dp, end = 16.dp)
-                .scale(0.9f)
-        ) { data ->
-            Snackbar(
-                snackbarData = data,
-                containerColor = if (isDarkTheme) Color(0xFF1B1B26) else Color(0xFFF1F5F9),
-                contentColor = if (isDarkTheme) Color.White else Color(0xFF0F172A),
-                actionColor = primaryAccent,
-                actionContentColor = primaryAccent,
-                shape = RoundedCornerShape(16.dp),
-                modifier = Modifier.border(
-                    1.5.dp,
-                    tertiaryAccent,
-                    RoundedCornerShape(16.dp)
-                )
-            )
-        }
-
         // IMAP & App Password Setup Dialog
         if (showImapSetupDialog) {
             ImapSetupDialog(
@@ -647,14 +608,6 @@ fun SwipeableMailStack(
                     }
                     // 2. Dispatch to ViewModel (Applies label, marks read, archives/moves from inbox)
                     viewModel.applyCustomLabel(targetEmail, chosenLabel)
-                    // 3. Show Snackbar
-                    coroutineScope.launch {
-                        snackbarHostState.currentSnackbarData?.dismiss()
-                        snackbarHostState.showSnackbar(
-                            message = "Moved to '${chosenLabel.name}' & marked read",
-                            duration = SnackbarDuration.Short
-                        )
-                    }
                 },
                 onDismiss = { emailForLabelDialog = null }
             )

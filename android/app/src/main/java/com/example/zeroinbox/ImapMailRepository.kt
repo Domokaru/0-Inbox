@@ -16,6 +16,7 @@ import javax.mail.Message
 import javax.mail.MessagingException
 import javax.mail.Session
 import javax.mail.Store
+import javax.mail.UIDFolder
 import javax.mail.internet.MimeMessage
 import javax.mail.internet.MimeMultipart
 import javax.mail.search.ComparisonTerm
@@ -28,6 +29,8 @@ import javax.mail.search.SearchTerm
  *
  * Provides complete inbox triage:
  * - Fetch Inbox messages (with optional 2-day filter)
+ * - Persistent IMAP connection with automatic reconnection on disconnects
+ * - Robust UID-based message targeting (avoids index shifting bugs)
  * - Archive (move from INBOX to [Gmail]/All Mail)
  * - Trash / Delete (move to [Gmail]/Trash or mark Deleted)
  * - Mark as Read / Unread (SEEN flag)
@@ -56,7 +59,7 @@ class ImapMailRepository(
             put("mail.imaps.ssl.enable", "true")
             put("mail.imaps.ssl.protocols", "TLSv1.2 TLSv1.3")
             put("mail.imaps.connectiontimeout", "15000")
-            put("mail.imaps.timeout", "15000")
+            put("mail.imaps.timeout", "20000")
             put("mail.imaps.peek", "true") // Do not automatically mark messages as read when fetching
         }
         return Session.getInstance(props, null)
@@ -71,6 +74,12 @@ class ImapMailRepository(
         if (currentStore != null && currentStore.isConnected) {
             return currentStore
         }
+
+        try {
+            currentStore?.close()
+        } catch (_: Exception) {}
+        persistentStore = null
+
         val email = imapAuthManager.getEmail()
             ?: throw IllegalStateException("No Gmail address provided. Please configure your credentials.")
         val password = imapAuthManager.getAppPassword()
@@ -83,9 +92,33 @@ class ImapMailRepository(
         return store
     }
 
+    private suspend fun <T> executeWithRetry(block: (store: Store) -> T): T {
+        return imapMutex.withLock {
+            try {
+                val store = getConnectedStore()
+                block(store)
+            } catch (e: Exception) {
+                Log.w(TAG, "IMAP operation encountered error: ${e.message}. Reconnecting and retrying...", e)
+                try {
+                    persistentStore?.close()
+                } catch (_: Exception) {}
+                persistentStore = null
+
+                // Reconnect fresh and retry once
+                val freshStore = getConnectedStore()
+                block(freshStore)
+            }
+        }
+    }
+
     suspend fun verifyCredentials(): Boolean = withContext(Dispatchers.IO) {
         imapMutex.withLock {
             try {
+                try {
+                    persistentStore?.close()
+                } catch (_: Exception) {}
+                persistentStore = null
+
                 val store = getConnectedStore()
                 store.isConnected
             } catch (e: Exception) {
@@ -99,84 +132,83 @@ class ImapMailRepository(
         pageToken: String? = null,
         filterTwoDays: Boolean = true
     ): Pair<List<EmailModel>, String?> = withContext(Dispatchers.IO) {
-        imapMutex.withLock {
-        var store: Store? = null
-        var inbox: Folder? = null
-        try {
-            store = getConnectedStore()
-            inbox = store.getFolder("INBOX")
-            inbox.open(Folder.READ_ONLY)
+        executeWithRetry { store ->
+            var inbox: Folder? = null
+            try {
+                inbox = store.getFolder("INBOX")
+                inbox.open(Folder.READ_ONLY)
 
-            val totalMessages = inbox.messageCount
-            if (totalMessages == 0) {
-                return@withContext Pair(emptyList(), null)
-            }
-
-            // Determine search term or index window
-            val messages: Array<Message> = if (filterTwoDays) {
-                val cal = Calendar.getInstance()
-                cal.add(Calendar.DAY_OF_YEAR, -2)
-                val cutoffDate = cal.time
-                val searchTerm = ReceivedDateTerm(ComparisonTerm.GE, cutoffDate)
-                val searchResults = inbox.search(searchTerm)
-                if (searchResults.isNotEmpty()) {
-                    searchResults
-                } else {
-                    // Fallback to the latest 30 messages if search yields none
-                    val start = maxOf(1, totalMessages - 29)
-                    inbox.getMessages(start, totalMessages)
+                val totalMessages = inbox.messageCount
+                if (totalMessages == 0) {
+                    return@executeWithRetry Pair(emptyList(), null)
                 }
-            } else {
-                // Paginate or take the most recent slice
-                val pageSize = 30
-                val end = if (pageToken != null) {
-                    val tokenInt = pageToken.toIntOrNull() ?: totalMessages
-                    minOf(tokenInt, totalMessages)
+
+                // Determine search term or index window
+                val messages: Array<Message> = if (filterTwoDays) {
+                    val cal = Calendar.getInstance()
+                    cal.add(Calendar.DAY_OF_YEAR, -2)
+                    val cutoffDate = cal.time
+                    val searchTerm = ReceivedDateTerm(ComparisonTerm.GE, cutoffDate)
+                    val searchResults = inbox.search(searchTerm)
+                    if (searchResults.isNotEmpty()) {
+                        searchResults
+                    } else {
+                        // Fallback to the latest 30 messages if search yields none
+                        val start = maxOf(1, totalMessages - 29)
+                        inbox.getMessages(start, totalMessages)
+                    }
                 } else {
-                    totalMessages
+                    // Paginate or take the most recent slice
+                    val pageSize = 30
+                    val end = if (pageToken != null) {
+                        val tokenInt = pageToken.toIntOrNull() ?: totalMessages
+                        minOf(tokenInt, totalMessages)
+                    } else {
+                        totalMessages
+                    }
+                    val start = maxOf(1, end - pageSize + 1)
+                    inbox.getMessages(start, end)
                 }
-                val start = maxOf(1, end - pageSize + 1)
-                inbox.getMessages(start, end)
-            }
 
-            // Reverse order so newest emails appear first
-            val reversed = messages.reversedArray()
+                val reversed = messages.reversedArray()
+                val uidFolder = inbox as? UIDFolder
 
-            val emailModels = reversed.mapNotNull { msg ->
-                try {
-                    val msgNumber = msg.messageNumber
-                    val mimeMsg = msg as? MimeMessage
-                    val messageId = mimeMsg?.messageID ?: "msg-$msgNumber-${msg.receivedDate?.time ?: System.currentTimeMillis()}"
+                val emailModels = reversed.mapNotNull { msg ->
+                    try {
+                        val uid = uidFolder?.getUID(msg) ?: msg.messageNumber.toLong()
+                        val msgNumber = msg.messageNumber
+                        val mimeMsg = msg as? MimeMessage
+                        val messageId = mimeMsg?.messageID ?: "msg-$uid-${msg.receivedDate?.time ?: System.currentTimeMillis()}"
 
-                    val sender = msg.from?.firstOrNull()?.toString() ?: "Unknown Sender"
-                    val subject = msg.subject ?: "(No Subject)"
-                    val snippet = extractSnippet(msg)
+                        val sender = msg.from?.firstOrNull()?.toString() ?: "Unknown Sender"
+                        val subject = msg.subject ?: "(No Subject)"
+                        val snippet = extractSnippet(msg)
 
-                    EmailModel(
-                        id = messageId,
-                        threadId = msgNumber.toString(), // Message number in IMAP folder
-                        sender = cleanSender(sender),
-                        subject = subject,
-                        snippet = snippet,
-                        isDemo = false
-                    )
-                } catch (e: Exception) {
-                    Log.w(TAG, "Error parsing message: ${e.message}")
+                        EmailModel(
+                            id = messageId,
+                            threadId = uid.toString(), // Immutable IMAP UID
+                            sender = cleanSender(sender),
+                            subject = subject,
+                            snippet = snippet,
+                            isDemo = false
+                        )
+                    } catch (e: Exception) {
+                        Log.w(TAG, "Error parsing message: ${e.message}")
+                        null
+                    }
+                }
+
+                val nextToken = if (!filterTwoDays && messages.isNotEmpty()) {
+                    val earliestNumber = messages.first().messageNumber
+                    if (earliestNumber > 1) (earliestNumber - 1).toString() else null
+                } else {
                     null
                 }
-            }
 
-            val nextToken = if (!filterTwoDays && messages.isNotEmpty()) {
-                val earliestNumber = messages.first().messageNumber
-                if (earliestNumber > 1) (earliestNumber - 1).toString() else null
-            } else {
-                null
+                Pair(emailModels, nextToken)
+            } finally {
+                try { inbox?.close(false) } catch (_: Exception) {}
             }
-
-            Pair(emailModels, nextToken)
-        } finally {
-            try { inbox?.close(false) } catch (e: Exception) {}
-        }
         }
     }
 
@@ -224,14 +256,22 @@ class ImapMailRepository(
 
     /**
      * Archive email:
-     * In Gmail IMAP, INBOX messages are removed from INBOX (which leaves them in [Gmail]/All Mail).
+     * In Gmail IMAP, marking read and removing from INBOX archives the email.
+     * All messages in Gmail remain preserved in [Gmail]/All Mail automatically.
      */
     suspend fun archiveEmail(msgIdOrNumber: String) = withContext(Dispatchers.IO) {
         operateOnInboxMessage(msgIdOrNumber) { inbox, message ->
-            // Copy to All Mail if needed, then flag deleted in INBOX
-            val allMailFolder = findFolderCaseInsensitive(inbox.store, listOf("[Gmail]/All Mail", "[Google Mail]/All Mail", "Archive"))
+            message.setFlag(Flags.Flag.SEEN, true)
+            val allMailFolder = findFolderCaseInsensitive(
+                inbox.store,
+                listOf("[Gmail]/All Mail", "[Google Mail]/All Mail", "Archive")
+            )
             if (allMailFolder != null && allMailFolder.exists()) {
-                inbox.copyMessages(arrayOf(message), allMailFolder)
+                try {
+                    inbox.copyMessages(arrayOf(message), allMailFolder)
+                } catch (e: Exception) {
+                    Log.d(TAG, "All Mail copy note: ${e.message}")
+                }
             }
             message.setFlag(Flags.Flag.DELETED, true)
         }
@@ -239,13 +279,20 @@ class ImapMailRepository(
 
     /**
      * Delete email:
-     * Move to [Gmail]/Trash or set DELETED flag.
+     * Move to [Gmail]/Trash (or localized equivalent) and mark DELETED in INBOX.
      */
     suspend fun deleteEmail(msgIdOrNumber: String) = withContext(Dispatchers.IO) {
         operateOnInboxMessage(msgIdOrNumber) { inbox, message ->
-            val trashFolder = findFolderCaseInsensitive(inbox.store, listOf("[Gmail]/Trash", "[Gmail]/Bin", "[Google Mail]/Trash", "Trash"))
+            val trashFolder = findFolderCaseInsensitive(
+                inbox.store,
+                listOf("[Gmail]/Trash", "[Gmail]/Bin", "[Google Mail]/Trash", "[Google Mail]/Bin", "Trash", "Bin")
+            )
             if (trashFolder != null && trashFolder.exists()) {
-                inbox.copyMessages(arrayOf(message), trashFolder)
+                try {
+                    inbox.copyMessages(arrayOf(message), trashFolder)
+                } catch (e: Exception) {
+                    Log.w(TAG, "Note on copy to trash: ${e.message}")
+                }
             }
             message.setFlag(Flags.Flag.DELETED, true)
         }
@@ -312,34 +359,33 @@ class ImapMailRepository(
      * Fetch user labels / IMAP folders.
      */
     suspend fun fetchLabels(): List<LabelModel> = withContext(Dispatchers.IO) {
-        imapMutex.withLock {
-        var store: Store? = null
         try {
-            store = getConnectedStore()
-            val defaultFolder = store.defaultFolder
-            val allFolders = defaultFolder.list("*")
+            executeWithRetry { store ->
+                val defaultFolder = store.defaultFolder
+                val allFolders = defaultFolder.list("*")
 
-            val excludedNames = setOf(
-                "INBOX", "[Gmail]", "[Google Mail]",
-                "[Gmail]/All Mail", "[Gmail]/Trash", "[Gmail]/Bin",
-                "[Gmail]/Spam", "[Gmail]/Drafts", "[Gmail]/Sent Mail"
-            )
+                val excludedNames = setOf(
+                    "INBOX", "[Gmail]", "[Google Mail]",
+                    "[Gmail]/All Mail", "[Gmail]/Trash", "[Gmail]/Bin",
+                    "[Gmail]/Spam", "[Gmail]/Drafts", "[Gmail]/Sent Mail",
+                    "[Google Mail]/All Mail", "[Google Mail]/Trash", "[Google Mail]/Bin",
+                    "[Google Mail]/Spam", "[Google Mail]/Drafts", "[Google Mail]/Sent Mail"
+                )
 
-            allFolders
-                .filter { folder ->
-                    val name = folder.fullName
-                    !excludedNames.contains(name) && (folder.type and Folder.HOLDS_MESSAGES != 0)
-                }
-                .map { folder ->
-                    val displayName = folder.name.replace("[Gmail]/", "")
-                    LabelModel(id = folder.fullName, name = displayName, type = "user")
-                }
-                .sortedBy { it.name.lowercase() }
+                allFolders
+                    .filter { folder ->
+                        val name = folder.fullName
+                        !excludedNames.contains(name) && (folder.type and Folder.HOLDS_MESSAGES != 0)
+                    }
+                    .map { folder ->
+                        val displayName = folder.name.replace("[Gmail]/", "").replace("[Google Mail]/", "")
+                        LabelModel(id = folder.fullName, name = displayName, type = "user")
+                    }
+                    .sortedBy { it.name.lowercase() }
+            }
         } catch (e: Exception) {
             Log.w(TAG, "Failed to list folders: ${e.message}")
             getDemoLabels()
-        } finally {
-        }
         }
     }
 
@@ -348,9 +394,13 @@ class ImapMailRepository(
      */
     suspend fun applyLabelAndArchive(msgIdOrNumber: String, labelId: String) = withContext(Dispatchers.IO) {
         operateOnInboxMessage(msgIdOrNumber) { inbox, message ->
-            val targetFolder = inbox.store.getFolder(labelId)
-            if (targetFolder != null && targetFolder.exists()) {
-                inbox.copyMessages(arrayOf(message), targetFolder)
+            try {
+                val targetFolder = inbox.store.getFolder(labelId)
+                if (targetFolder != null && targetFolder.exists()) {
+                    inbox.copyMessages(arrayOf(message), targetFolder)
+                }
+            } catch (e: Exception) {
+                Log.w(TAG, "Failed to copy to label $labelId: ${e.message}")
             }
             message.setFlag(Flags.Flag.SEEN, true)
             message.setFlag(Flags.Flag.DELETED, true)
@@ -368,41 +418,52 @@ class ImapMailRepository(
             try {
                 val f = store.getFolder(name)
                 if (f.exists()) return f
-            } catch (e: Exception) {}
+            } catch (_: Exception) {}
         }
         return null
     }
 
     private suspend fun operateOnInboxMessage(
-        msgIdOrNumber: String,
+        msgUidOrId: String,
         operation: (inbox: Folder, message: Message) -> Unit
     ) = withContext(Dispatchers.IO) {
-        imapMutex.withLock {
-        var store: Store? = null
-        var inbox: Folder? = null
-        try {
-            store = getConnectedStore()
-            inbox = store.getFolder("INBOX")
-            inbox.open(Folder.READ_WRITE)
+        executeWithRetry { store ->
+            var inbox: Folder? = null
+            try {
+                inbox = store.getFolder("INBOX")
+                inbox.open(Folder.READ_WRITE)
 
-            val msgNumber = msgIdOrNumber.toIntOrNull()
-            val message: Message? = if (msgNumber != null && msgNumber in 1..inbox.messageCount) {
-                inbox.getMessage(msgNumber)
-            } else {
-                // Search by Message-ID header if available
-                val allMsgs = inbox.getMessages(maxOf(1, inbox.messageCount - 100), inbox.messageCount)
-                allMsgs.find { m ->
-                    val mime = m as? MimeMessage
-                    mime?.messageID == msgIdOrNumber
-                } ?: allMsgs.lastOrNull()
-            }
+                val uid = msgUidOrId.toLongOrNull()
+                val uidFolder = inbox as? UIDFolder
+                val message: Message? = if (uidFolder != null && uid != null && uid > 0) {
+                    try {
+                        uidFolder.getMessageByUID(uid)
+                    } catch (e: Exception) {
+                        Log.w(TAG, "Failed to lookup UID $uid: ${e.message}")
+                        null
+                    }
+                } else {
+                    val msgNumber = msgUidOrId.toIntOrNull()
+                    if (msgNumber != null && msgNumber in 1..inbox.messageCount) {
+                        inbox.getMessage(msgNumber)
+                    } else {
+                        // Fallback: Search by Message-ID header if available
+                        val allMsgs = inbox.getMessages(maxOf(1, inbox.messageCount - 100), inbox.messageCount)
+                        allMsgs.find { m ->
+                            val mime = m as? MimeMessage
+                            mime?.messageID == msgUidOrId
+                        } ?: allMsgs.lastOrNull()
+                    }
+                }
 
-            if (message != null) {
-                operation(inbox, message)
+                if (message != null) {
+                    operation(inbox, message)
+                } else {
+                    Log.w(TAG, "Message $msgUidOrId was not found in INBOX (may have already been triaged)")
+                }
+            } finally {
+                try { inbox?.close(true) } catch (_: Exception) {} // expunge deleted
             }
-        } finally {
-            try { inbox?.close(true) } catch (e: Exception) {} // expunge deleted
-        }
         }
     }
 

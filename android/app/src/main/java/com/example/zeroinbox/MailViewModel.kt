@@ -93,6 +93,26 @@ class MailViewModel(private val repository: ImapMailRepository) : ViewModel() {
         isInitialized = false
     }
 
+    private fun isAuthException(throwable: Throwable?): Boolean {
+        var current = throwable
+        var depth = 0
+        while (current != null && depth < 10) {
+            val msgLower = (current.message ?: "").lowercase()
+            val className = current.javaClass.simpleName.lowercase()
+            if (className.contains("authenticationfailed") ||
+                msgLower.contains("authenticationfailed") ||
+                msgLower.contains("invalid credentials") ||
+                msgLower.contains("535") ||
+                msgLower.contains("username and password not accepted")
+            ) {
+                return true
+            }
+            current = current.cause
+            depth++
+        }
+        return false
+    }
+
     private fun formatDetailedErrorMessage(throwable: Throwable?): String {
         var current = throwable
         var depth = 0
@@ -100,10 +120,6 @@ class MailViewModel(private val repository: ImapMailRepository) : ViewModel() {
 
         while (current != null && depth < 10) {
             val msg = current.message
-            if (!msg.isNullOrBlank() && fallbackMsg == null && !msg.contains("Exception")) {
-                fallbackMsg = msg
-            }
-
             val msgLower = (msg ?: "").lowercase()
             if (msgLower.contains("authenticationfailed") || msgLower.contains("invalid credentials") || msgLower.contains("535") || msgLower.contains("username and password not accepted")) {
                 return "Gmail Authentication Failed: Please verify your Google App Password (16 characters, generated in your Google Account > Security > 2-Step Verification > App Passwords)."
@@ -117,11 +133,14 @@ class MailViewModel(private val repository: ImapMailRepository) : ViewModel() {
             if (msgLower.contains("no google app password") || msgLower.contains("no gmail address")) {
                 return msg ?: "Please enter your Gmail address and 16-character App Password in Settings."
             }
+            if (!msg.isNullOrBlank() && fallbackMsg == null) {
+                fallbackMsg = msg
+            }
             current = current.cause
             depth++
         }
 
-        return fallbackMsg ?: throwable?.localizedMessage ?: "Failed to connect to Gmail IMAP. Check your App Password."
+        return fallbackMsg ?: throwable?.localizedMessage ?: "Unable to sync with Gmail IMAP. Please check your connection."
     }
 
     fun retryAuth() {
@@ -191,7 +210,6 @@ class MailViewModel(private val repository: ImapMailRepository) : ViewModel() {
             try {
                 when (direction) {
                     SwipeDirection.RIGHT -> {
-                        repository.markRead(email.threadId)
                         repository.archiveEmail(email.threadId)
                     }
                     SwipeDirection.LEFT -> {
@@ -206,7 +224,9 @@ class MailViewModel(private val repository: ImapMailRepository) : ViewModel() {
                 }
             } catch (e: Exception) {
                 e.printStackTrace()
-                _errorMessage.value = formatDetailedErrorMessage(e)
+                if (isAuthException(e)) {
+                    _errorMessage.value = formatDetailedErrorMessage(e)
+                }
             }
         }
     }
@@ -226,7 +246,9 @@ class MailViewModel(private val repository: ImapMailRepository) : ViewModel() {
                 repository.applyLabelAndArchive(email.threadId, label.id)
             } catch (e: Exception) {
                 e.printStackTrace()
-                _errorMessage.value = formatDetailedErrorMessage(e)
+                if (isAuthException(e)) {
+                    _errorMessage.value = formatDetailedErrorMessage(e)
+                }
             }
         }
     }
