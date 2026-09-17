@@ -863,9 +863,9 @@ export default function AndroidSimulator({
                     <span>Confetti</span>
                   </button>
 
-                  {isLiveGmailMode && accessToken ? (
+                  {isLiveGmailMode && currentUser ? (
                     <button
-                      onClick={() => loadRealGmailData(accessToken)}
+                      onClick={handleGoogleSignIn}
                       className="px-3 py-1.5 rounded-xl border text-xs font-semibold flex items-center gap-1.5 transition-all active:scale-95 shadow-sm cursor-pointer"
                       style={{
                         backgroundColor: `${primaryAccent}18`,
@@ -873,7 +873,8 @@ export default function AndroidSimulator({
                         color: primaryAccent,
                       }}
                     >
-                      <span>Check New Mail</span>
+                      <RefreshCw size={14} />
+                      <span>Refresh Inbox</span>
                     </button>
                   ) : hasMore ? (
                     <button

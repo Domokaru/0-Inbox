@@ -358,6 +358,26 @@ fun SwipeableMailStack(
                         color = if (isDarkTheme) Color(0xFFAAAAAA) else Color(0xFF64748B),
                         fontSize = 12.sp
                     )
+                    Spacer(modifier = Modifier.height(28.dp))
+                    Button(
+                        onClick = {
+                            if (isDemoMode) {
+                                viewModel.loadNextBatch()
+                            } else {
+                                onSignInWithGoogle()
+                            }
+                        },
+                        colors = ButtonDefaults.buttonColors(containerColor = primaryAccent),
+                        shape = RoundedCornerShape(12.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Refresh,
+                            contentDescription = "Refresh",
+                            modifier = Modifier.size(18.dp)
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text("REFRESH INBOX", fontWeight = FontWeight.Bold, color = Color.White)
+                    }
                 }
             }
 
