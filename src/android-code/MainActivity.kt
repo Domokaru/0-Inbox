@@ -62,10 +62,27 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
-        // Auto-connect if Google account already saved
+        // Anytime the app is first opened, if it had already existing OAuth login credentials and tokens,
+        // it tries to log in and retrieve email immediately.
+        // If it fails it should just go ahead and rather than pop up an error it should show the button for refresh and login.
+        val hasExisting = authManager.hasExistingCredentials()
         val savedEmail = authManager.getSavedEmail()
-        if (savedEmail != null) {
-            viewModel.initializeWithSavedAccount(savedEmail)
+        if (hasExisting && savedEmail != null) {
+            lifecycleScope.launch {
+                try {
+                    val token = authManager.getOrRefreshOAuthToken()
+                    if (token != null) {
+                        viewModel.setAccount(savedEmail)
+                    } else {
+                        // Suppress error popup, activate the refresh & login UI
+                        viewModel.setNeedsLoginRefresh(true)
+                    }
+                } catch (e: Exception) {
+                    e.printStackTrace()
+                    // Suppress error popup, activate the refresh & login UI
+                    viewModel.setNeedsLoginRefresh(true)
+                }
+            }
         }
 
         setContent {

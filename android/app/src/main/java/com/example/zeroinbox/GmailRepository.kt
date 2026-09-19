@@ -35,13 +35,20 @@ class GmailRepository(
         activeAccount = accountName
     }
 
-    private fun getAuthToken(): String {
+    fun getSavedAccountName(): String? {
+        return activeAccount ?: authManager.getSavedEmail()
+    }
+
+    private fun getAuthToken(forceRefresh: Boolean = false): String {
+        if (forceRefresh) {
+            authManager.invalidateCurrentToken()
+        }
         val token = authManager.getStoredAccessToken()
         if (token.isNullOrBlank()) {
             val account = authManager.getSavedAccount()
             if (account != null && account.account != null) {
                 try {
-                    val scopeStr = "oauth2:${GoogleAuthManager.GMAIL_SCOPE}"
+                    val scopeStr = "oauth2:${GoogleAuthManager.GMAIL_SCOPE} ${GoogleAuthManager.GMAIL_SETTINGS_SCOPE}"
                     val freshToken = com.google.android.gms.auth.GoogleAuthUtil.getToken(
                         context,
                         account.account!!,
@@ -50,7 +57,18 @@ class GmailRepository(
                     authManager.saveAccessToken(freshToken)
                     return freshToken
                 } catch (e: Exception) {
-                    throw IllegalStateException("Failed to obtain OAuth token: ${e.message}", e)
+                    try {
+                        val scopeStrFallback = "oauth2:${GoogleAuthManager.GMAIL_SCOPE}"
+                        val freshTokenFallback = com.google.android.gms.auth.GoogleAuthUtil.getToken(
+                            context,
+                            account.account!!,
+                            scopeStrFallback
+                        )
+                        authManager.saveAccessToken(freshTokenFallback)
+                        return freshTokenFallback
+                    } catch (e2: Exception) {
+                        throw IllegalStateException("Failed to obtain OAuth token: ${e2.message}", e2)
+                    }
                 }
             }
             throw IllegalStateException("No Google Account signed in. Please sign in with Google.")
@@ -61,9 +79,10 @@ class GmailRepository(
     private fun makeRequest(
         urlStr: String,
         method: String = "GET",
-        jsonBody: String? = null
+        jsonBody: String? = null,
+        isRetry: Boolean = false
     ): String {
-        val token = getAuthToken()
+        val token = getAuthToken(forceRefresh = isRetry)
         val url = URL(urlStr)
         val conn = url.openConnection() as HttpURLConnection
         conn.requestMethod = method
@@ -86,6 +105,9 @@ class GmailRepository(
             return BufferedReader(InputStreamReader(conn.inputStream, "UTF-8")).use { reader ->
                 reader.readText()
             }
+        } else if (responseCode == 401 && !isRetry) {
+            Log.w(TAG, "Gmail API returned 401 Unauthorized, refreshing token and retrying...")
+            return makeRequest(urlStr, method, jsonBody, isRetry = true)
         } else {
             val errorStream = conn.errorStream
             val errorBody = if (errorStream != null) {
@@ -234,6 +256,38 @@ class GmailRepository(
             put("addLabelIds", JSONArray().put("INBOX"))
         }.toString()
         makeRequest("$GMAIL_API_BASE/threads/$threadId/modify", "POST", body)
+    }
+
+    suspend fun blockSender(senderRaw: String, threadId: String) = withContext(Dispatchers.IO) {
+        val extractedEmail = run {
+            val match = Regex("<([^>]+)>").find(senderRaw)
+            match?.groupValues?.get(1)?.trim() ?: run {
+                val emailRegex = Regex("([a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,})")
+                emailRegex.find(senderRaw)?.value?.trim() ?: senderRaw.trim()
+            }
+        }
+        // 1. Create Gmail filter to automatically trash future messages from this sender
+        try {
+            val filterBody = JSONObject().apply {
+                put("criteria", JSONObject().apply {
+                    put("from", extractedEmail)
+                })
+                put("action", JSONObject().apply {
+                    put("removeLabelIds", JSONArray().put("INBOX"))
+                    put("addLabelIds", JSONArray().put("TRASH"))
+                })
+            }.toString()
+            makeRequest("$GMAIL_API_BASE/settings/filters", "POST", filterBody)
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+
+        // 2. Trash the current thread
+        try {
+            trashEmail(threadId)
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
     }
 
     suspend fun fetchLabels(): List<LabelModel> = withContext(Dispatchers.IO) {

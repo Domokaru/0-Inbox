@@ -53,8 +53,18 @@ class MailViewModel(private val repository: GmailRepository) : ViewModel() {
     private val _errorMessage = MutableStateFlow<String?>(null)
     val errorMessage: StateFlow<String?> = _errorMessage.asStateFlow()
 
+    private val _needsLoginRefresh = MutableStateFlow(false)
+    val needsLoginRefresh: StateFlow<Boolean> = _needsLoginRefresh.asStateFlow()
+
     private var currentNextPageToken: String? = null
     private var isInitialized = false
+
+    fun setNeedsLoginRefresh(value: Boolean) {
+        _needsLoginRefresh.value = value
+        if (value) {
+            _errorMessage.value = null
+        }
+    }
 
     fun initializeWithSavedAccount(accountName: String) {
         if (_currentAccount.value != accountName || !isInitialized) {
@@ -66,6 +76,7 @@ class MailViewModel(private val repository: GmailRepository) : ViewModel() {
         _currentAccount.value = accountName
         _isDemoMode.value = false
         _errorMessage.value = null
+        _needsLoginRefresh.value = false
         currentNextPageToken = null
         _emails.value = emptyList()
         isInitialized = true
@@ -78,6 +89,7 @@ class MailViewModel(private val repository: GmailRepository) : ViewModel() {
         _isDemoMode.value = true
         _currentAccount.value = null
         _errorMessage.value = null
+        _needsLoginRefresh.value = false
         _emails.value = repository.getDemoEmails()
         _labels.value = repository.getDemoLabels()
         _hasMore.value = false
@@ -90,6 +102,7 @@ class MailViewModel(private val repository: GmailRepository) : ViewModel() {
         _emails.value = emptyList()
         _labels.value = emptyList()
         _errorMessage.value = null
+        _needsLoginRefresh.value = false
         isInitialized = false
     }
 
@@ -187,6 +200,7 @@ class MailViewModel(private val repository: GmailRepository) : ViewModel() {
                 // In Compose Tinder stack, items at the end of the list are rendered on top
                 _emails.value = newEmails.reversed() + _emails.value
                 _hasMore.value = nextPageToken != null
+                _needsLoginRefresh.value = false
 
                 // Once primary batch loads successfully, refresh labels in the background
                 if (_labels.value.isEmpty()) {
@@ -194,7 +208,18 @@ class MailViewModel(private val repository: GmailRepository) : ViewModel() {
                 }
             } catch (e: Exception) {
                 e.printStackTrace()
-                _errorMessage.value = formatDetailedErrorMessage(e)
+                val message = e.message ?: ""
+                val isAuthIssue = message.contains("401", ignoreCase = true) ||
+                        message.contains("token", ignoreCase = true) ||
+                        message.contains("account", ignoreCase = true) ||
+                        message.contains("auth", ignoreCase = true) ||
+                        _emails.value.isEmpty()
+                if (isAuthIssue) {
+                    _needsLoginRefresh.value = true
+                    _errorMessage.value = null
+                } else {
+                    _errorMessage.value = formatDetailedErrorMessage(e)
+                }
             } finally {
                 _isLoading.value = false
             }
@@ -251,6 +276,55 @@ class MailViewModel(private val repository: GmailRepository) : ViewModel() {
                     _errorMessage.value = formatDetailedErrorMessage(e)
                 }
             }
+        }
+    }
+
+    fun blockSender(email: EmailModel) {
+        _lastAction.value = null
+        _emails.value = _emails.value.filter { it.id != email.id }
+
+        if (email.isDemo) return
+
+        viewModelScope.launch {
+            try {
+                repository.blockSender(email.sender, email.threadId)
+            } catch (e: Exception) {
+                e.printStackTrace()
+                if (isAuthException(e)) {
+                    _errorMessage.value = formatDetailedErrorMessage(e)
+                }
+            }
+        }
+    }
+
+    fun refreshInbox(onAuthRequired: () -> Unit) {
+        if (_isDemoMode.value) {
+            _emails.value = repository.getDemoEmails()
+            _labels.value = repository.getDemoLabels()
+            _hasMore.value = false
+            return
+        }
+        val account = _currentAccount.value ?: repository.getSavedAccountName()
+        if (account != null) {
+            viewModelScope.launch {
+                _isLoading.value = true
+                _errorMessage.value = null
+                _needsLoginRefresh.value = false
+                try {
+                    currentNextPageToken = null
+                    _hasMore.value = true
+                    _emails.value = emptyList()
+                    repository.initialize(account)
+                    loadNextBatch()
+                } catch (e: Exception) {
+                    e.printStackTrace()
+                    onAuthRequired()
+                } finally {
+                    _isLoading.value = false
+                }
+            }
+        } else {
+            onAuthRequired()
         }
     }
 

@@ -28,6 +28,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AccountCircle
 import androidx.compose.material.icons.filled.Archive
+import androidx.compose.material.icons.filled.Block
 import androidx.compose.material.icons.filled.Undo
 import androidx.compose.material.icons.filled.ArrowDropDown
 import androidx.compose.material.icons.filled.Key
@@ -103,6 +104,7 @@ fun SwipeableMailStack(
     val isDemoMode by viewModel.isDemoMode.collectAsState()
     val filterTwoDays by viewModel.filterTwoDays.collectAsState()
     val errorMessage by viewModel.errorMessage.collectAsState()
+    val needsLoginRefresh by viewModel.needsLoginRefresh.collectAsState()
 
     val coroutineScope = rememberCoroutineScope()
     var activePopup by remember { mutableStateOf<PopupAction?>(null) }
@@ -189,71 +191,73 @@ fun SwipeableMailStack(
             }
         }
 
-        // Error message notification banner
-        errorMessage?.let { error ->
-            Card(
-                modifier = Modifier
-                    .align(Alignment.TopCenter)
-                    .padding(top = 80.dp, start = 16.dp, end = 16.dp)
-                    .fillMaxWidth(),
-                colors = CardDefaults.cardColors(
-                    containerColor = if (isDarkTheme) Color(0xFF2C1518) else Color(0xFFFEE2E2)
-                ),
-                border = BorderStroke(1.dp, Color(0xFFEF4444)),
-                shape = RoundedCornerShape(12.dp)
-            ) {
-                Row(
-                    modifier = Modifier.padding(10.dp),
-                    verticalAlignment = Alignment.CenterVertically
+        // Error message notification banner (suppressed when needsLoginRefresh is true)
+        if (!needsLoginRefresh) {
+            errorMessage?.let { error ->
+                Card(
+                    modifier = Modifier
+                        .align(Alignment.TopCenter)
+                        .padding(top = 80.dp, start = 16.dp, end = 16.dp)
+                        .fillMaxWidth(),
+                    colors = CardDefaults.cardColors(
+                        containerColor = if (isDarkTheme) Color(0xFF2C1518) else Color(0xFFFEE2E2)
+                    ),
+                    border = BorderStroke(1.dp, Color(0xFFEF4444)),
+                    shape = RoundedCornerShape(12.dp)
                 ) {
-                    Icon(
-                        imageVector = Icons.Default.Warning,
-                        contentDescription = null,
-                        tint = Color(0xFFEF4444),
-                        modifier = Modifier.size(18.dp)
-                    )
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Text(
-                        text = error,
-                        fontSize = 11.sp,
-                        color = if (isDarkTheme) Color(0xFFFCA5A5) else Color(0xFF991B1B),
-                        modifier = Modifier.weight(1f)
-                    )
-                    Spacer(modifier = Modifier.width(4.dp))
-                    OutlinedButton(
-                        onClick = onSignInWithGoogle,
-                        contentPadding = PaddingValues(horizontal = 6.dp, vertical = 2.dp),
-                        border = BorderStroke(1.dp, Color(0xFFEF4444).copy(alpha = 0.5f)),
-                        shape = RoundedCornerShape(6.dp)
+                    Row(
+                        modifier = Modifier.padding(10.dp),
+                        verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Text(
-                            text = "SIGN IN",
-                            fontSize = 10.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = Color(0xFFEF4444)
+                        Icon(
+                            imageVector = Icons.Default.Warning,
+                            contentDescription = null,
+                            tint = Color(0xFFEF4444),
+                            modifier = Modifier.size(18.dp)
                         )
-                    }
-                    Spacer(modifier = Modifier.width(4.dp))
-                    TextButton(
-                        onClick = {
-                            viewModel.clearError()
-                            viewModel.retryAuth()
-                        },
-                        contentPadding = PaddingValues(horizontal = 6.dp, vertical = 2.dp)
-                    ) {
+                        Spacer(modifier = Modifier.width(8.dp))
                         Text(
-                            text = if (error.contains("permission", ignoreCase = true) || error.contains("consent", ignoreCase = true)) "GRANT" else "RETRY",
+                            text = error,
                             fontSize = 11.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = Color(0xFFEF4444)
+                            color = if (isDarkTheme) Color(0xFFFCA5A5) else Color(0xFF991B1B),
+                            modifier = Modifier.weight(1f)
                         )
+                        Spacer(modifier = Modifier.width(4.dp))
+                        OutlinedButton(
+                            onClick = onSignInWithGoogle,
+                            contentPadding = PaddingValues(horizontal = 6.dp, vertical = 2.dp),
+                            border = BorderStroke(1.dp, Color(0xFFEF4444).copy(alpha = 0.5f)),
+                            shape = RoundedCornerShape(6.dp)
+                        ) {
+                            Text(
+                                text = "SIGN IN",
+                                fontSize = 10.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = Color(0xFFEF4444)
+                            )
+                        }
+                        Spacer(modifier = Modifier.width(4.dp))
+                        TextButton(
+                            onClick = {
+                                viewModel.clearError()
+                                viewModel.retryAuth()
+                            },
+                            contentPadding = PaddingValues(horizontal = 6.dp, vertical = 2.dp)
+                        ) {
+                            Text(
+                                text = if (error.contains("permission", ignoreCase = true) || error.contains("consent", ignoreCase = true)) "GRANT" else "RETRY",
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = Color(0xFFEF4444)
+                            )
+                        }
                     }
                 }
             }
         }
 
-        // Connect Gmail Account Screen when neither account nor demo is chosen
-        if (currentAccount == null && !isDemoMode) {
+        // Connect Gmail Account Screen when neither account nor demo is chosen and not in needsLoginRefresh mode
+        if (currentAccount == null && !isDemoMode && !needsLoginRefresh) {
             Card(
                 modifier = Modifier
                     .fillMaxWidth(0.9f)
@@ -330,10 +334,10 @@ fun SwipeableMailStack(
             }
         }
 
-        // Only display triage stack, info card, and bottom action bar when an account is connected or in demo mode
-        if (currentAccount != null || isDemoMode) {
-            // Empty state when all emails are triaged: Big pixelated 0 in center
-            if (emails.isEmpty() && !isLoading) {
+        // Only display triage stack, info card, and bottom action bar when an account is connected, in demo mode, or in refresh mode
+        if (currentAccount != null || isDemoMode || needsLoginRefresh) {
+            // Empty state when all emails are triaged or when login needs refresh
+            if (needsLoginRefresh || (emails.isEmpty() && !isLoading)) {
                 Column(
                     modifier = Modifier
                         .align(Alignment.Center)
@@ -346,7 +350,7 @@ fun SwipeableMailStack(
                     )
                     Spacer(modifier = Modifier.height(18.dp))
                     Text(
-                        text = "0 INBOX ACHIEVED!",
+                        text = if (needsLoginRefresh) "SESSION EXPIRED" else "0 INBOX ACHIEVED!",
                         color = secondaryAccent,
                         fontSize = 18.sp,
                         fontWeight = FontWeight.Black,
@@ -354,29 +358,55 @@ fun SwipeableMailStack(
                     )
                     Spacer(modifier = Modifier.height(6.dp))
                     Text(
-                        text = "All emails triaged • 0 unread",
+                        text = if (needsLoginRefresh) "Previous session expired. Tap below to log in and sync mail." else "All emails triaged • 0 unread",
                         color = if (isDarkTheme) Color(0xFFAAAAAA) else Color(0xFF64748B),
-                        fontSize = 12.sp
+                        fontSize = 12.sp,
+                        textAlign = androidx.compose.ui.text.style.TextAlign.Center
                     )
                     Spacer(modifier = Modifier.height(28.dp))
-                    Button(
-                        onClick = {
-                            if (isDemoMode) {
-                                viewModel.loadNextBatch()
-                            } else {
-                                onSignInWithGoogle()
-                            }
-                        },
-                        colors = ButtonDefaults.buttonColors(containerColor = primaryAccent),
-                        shape = RoundedCornerShape(12.dp)
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Icon(
-                            imageVector = Icons.Default.Refresh,
-                            contentDescription = "Refresh",
-                            modifier = Modifier.size(18.dp)
-                        )
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Text("REFRESH INBOX", fontWeight = FontWeight.Bold, color = Color.White)
+                        Button(
+                            onClick = {
+                                if (isDemoMode) {
+                                    viewModel.loadNextBatch()
+                                } else {
+                                    viewModel.refreshInbox(onAuthRequired = onSignInWithGoogle)
+                                }
+                            },
+                            colors = ButtonDefaults.buttonColors(containerColor = primaryAccent),
+                            shape = RoundedCornerShape(12.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Refresh,
+                                contentDescription = "Refresh",
+                                modifier = Modifier.size(18.dp),
+                                tint = Color.Black
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(
+                                text = if (needsLoginRefresh) "REFRESH & LOGIN" else "REFRESH INBOX",
+                                fontWeight = FontWeight.Bold,
+                                color = Color.Black
+                            )
+                        }
+
+                        if (needsLoginRefresh) {
+                            OutlinedButton(
+                                onClick = { viewModel.enableDemoMode() },
+                                shape = RoundedCornerShape(12.dp),
+                                border = BorderStroke(1.dp, if (isDarkTheme) Color(0xFF374151) else Color(0xFFCBD5E1))
+                            ) {
+                                Text(
+                                    text = "DEMO MODE",
+                                    fontWeight = FontWeight.SemiBold,
+                                    fontSize = 12.sp,
+                                    color = if (isDarkTheme) Color(0xFFD1D5DB) else Color(0xFF475569)
+                                )
+                            }
+                        }
                     }
                 }
             }
@@ -645,6 +675,16 @@ fun SwipeableMailStack(
                     }
                     // 2. Dispatch to ViewModel (Applies label, marks read, archives/moves from inbox)
                     viewModel.applyCustomLabel(targetEmail, chosenLabel)
+                },
+                onBlockSender = { emailToBlock ->
+                    emailForLabelDialog = null
+                    // Screen-Centered Red Popup for Block
+                    coroutineScope.launch {
+                        activePopup = PopupAction(icon = Icons.Default.Block, color = Color(0xFFDC2626))
+                        delay(700)
+                        activePopup = null
+                    }
+                    viewModel.blockSender(emailToBlock)
                 },
                 onDismiss = { emailForLabelDialog = null }
             )
@@ -1054,15 +1094,97 @@ fun LabelSelectionDialog(
     primaryAccent: Color,
     onRefresh: () -> Unit,
     onSelectLabel: (LabelModel) -> Unit,
+    onBlockSender: (EmailModel) -> Unit,
     onDismiss: () -> Unit
 ) {
     var expanded by remember { mutableStateOf(false) }
     var selectedLabel by remember(labels) { mutableStateOf(labels.firstOrNull()) }
     var searchQuery by remember { mutableStateOf("") }
+    var showBlockConfirmDialog by remember { mutableStateOf(false) }
 
     val filteredLabels = remember(labels, searchQuery) {
         if (searchQuery.isBlank()) labels
         else labels.filter { it.name.contains(searchQuery, ignoreCase = true) }
+    }
+
+    if (showBlockConfirmDialog) {
+        val extractedEmail = remember(email.sender) {
+            val match = Regex("<([^>]+)>").find(email.sender)
+            match?.groupValues?.get(1)?.trim() ?: run {
+                val emailRegex = Regex("([a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,})")
+                emailRegex.find(email.sender)?.value?.trim() ?: email.sender.trim()
+            }
+        }
+        AlertDialog(
+            onDismissRequest = { showBlockConfirmDialog = false },
+            title = {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(
+                        imageVector = Icons.Default.Block,
+                        contentDescription = null,
+                        tint = Color(0xFFDC2626),
+                        modifier = Modifier.size(24.dp)
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text(
+                        text = "Block Sender?",
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 18.sp
+                    )
+                }
+            },
+            text = {
+                Column {
+                    Text(
+                        text = "Are you sure you want to block emails from this sender?",
+                        fontSize = 13.sp
+                    )
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Card(
+                        colors = CardDefaults.cardColors(
+                            containerColor = Color(0xFFDC2626).copy(alpha = 0.12f)
+                        ),
+                        shape = RoundedCornerShape(8.dp)
+                    ) {
+                        Text(
+                            text = extractedEmail,
+                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+                            color = Color(0xFFDC2626),
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 12.sp
+                        )
+                    }
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Text(
+                        text = "This will add the address to your Gmail blocked list. All future emails from this sender will be automatically routed to Trash.",
+                        fontSize = 11.sp,
+                        color = Color.Gray,
+                        lineHeight = 16.sp
+                    )
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showBlockConfirmDialog = false }) {
+                    Text("NO, KEEP")
+                }
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        showBlockConfirmDialog = false
+                        onDismiss()
+                        onBlockSender(email)
+                    },
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = Color(0xFFDC2626),
+                        contentColor = Color.White
+                    ),
+                    shape = RoundedCornerShape(8.dp)
+                ) {
+                    Text("YES, BLOCK", fontWeight = FontWeight.Bold)
+                }
+            }
+        )
     }
 
     AlertDialog(
@@ -1088,13 +1210,23 @@ fun LabelSelectionDialog(
                     )
                 }
 
-                IconButton(onClick = onRefresh) {
-                    Icon(
-                        imageVector = Icons.Default.Refresh,
-                        contentDescription = "Refresh Labels from Gmail",
-                        tint = if (isRefreshing) primaryAccent else Color.Gray,
-                        modifier = Modifier.size(20.dp)
-                    )
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    IconButton(onClick = onRefresh) {
+                        Icon(
+                            imageVector = Icons.Default.Refresh,
+                            contentDescription = "Refresh Labels from Gmail",
+                            tint = if (isRefreshing) primaryAccent else Color.Gray,
+                            modifier = Modifier.size(20.dp)
+                        )
+                    }
+                    IconButton(onClick = onDismiss) {
+                        Icon(
+                            imageVector = Icons.Default.Close,
+                            contentDescription = "Close",
+                            tint = Color.Gray,
+                            modifier = Modifier.size(20.dp)
+                        )
+                    }
                 }
             }
         },
@@ -1249,8 +1381,22 @@ fun LabelSelectionDialog(
             }
         },
         dismissButton = {
-            TextButton(onClick = onDismiss) {
-                Text("CANCEL")
+            Button(
+                onClick = { showBlockConfirmDialog = true },
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = Color(0xFFDC2626),
+                    contentColor = Color.White
+                ),
+                shape = RoundedCornerShape(8.dp)
+            ) {
+                Icon(
+                    imageVector = Icons.Default.Block,
+                    contentDescription = null,
+                    modifier = Modifier.size(16.dp),
+                    tint = Color.White
+                )
+                Spacer(modifier = Modifier.width(4.dp))
+                Text("BLOCK", fontWeight = FontWeight.Bold, color = Color.White)
             }
         },
         confirmButton = {

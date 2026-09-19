@@ -20,6 +20,7 @@ class GoogleAuthManager(private val context: Context) {
 
     companion object {
         const val GMAIL_SCOPE = "https://www.googleapis.com/auth/gmail.modify"
+        const val GMAIL_SETTINGS_SCOPE = "https://www.googleapis.com/auth/gmail.settings.basic"
         private const val PREFS_NAME = "google_auth_prefs"
         private const val KEY_USER_EMAIL = "google_user_email"
         private const val KEY_ACCESS_TOKEN = "google_access_token"
@@ -31,7 +32,7 @@ class GoogleAuthManager(private val context: Context) {
     fun getGoogleSignInClient(activity: Activity): GoogleSignInClient {
         val gso = GoogleSignInOptions.Builder(GoogleSignInOptions.DEFAULT_SIGN_IN)
             .requestEmail()
-            .requestScopes(Scope(GMAIL_SCOPE))
+            .requestScopes(Scope(GMAIL_SCOPE), Scope(GMAIL_SETTINGS_SCOPE))
             .build()
         return GoogleSignIn.getClient(activity, gso)
     }
@@ -60,9 +61,61 @@ class GoogleAuthManager(private val context: Context) {
         return prefs.getString(KEY_ACCESS_TOKEN, null)
     }
 
+    fun hasExistingCredentials(): Boolean {
+        return getSavedAccount() != null || !getSavedEmail().isNullOrBlank() || !getStoredAccessToken().isNullOrBlank()
+    }
+
+    fun invalidateCurrentToken() {
+        val token = getStoredAccessToken()
+        if (!token.isNullOrBlank()) {
+            try {
+                GoogleAuthUtil.invalidateToken(context, token)
+            } catch (e: Exception) {
+                e.printStackTrace()
+            }
+        }
+        prefs.edit().remove(KEY_ACCESS_TOKEN).apply()
+    }
+
+    suspend fun getOrRefreshOAuthToken(forceRefresh: Boolean = false): String? = withContext(Dispatchers.IO) {
+        if (forceRefresh) {
+            invalidateCurrentToken()
+        }
+        val storedToken = getStoredAccessToken()
+        if (!storedToken.isNullOrBlank()) {
+            return@withContext storedToken
+        }
+        val account = getSavedAccount()
+        if (account?.account != null) {
+            try {
+                val scopeStr = "oauth2:$GMAIL_SCOPE $GMAIL_SETTINGS_SCOPE"
+                val token = GoogleAuthUtil.getToken(context, account.account!!, scopeStr)
+                if (token != null) {
+                    saveAccessToken(token)
+                    account.email?.let { saveUserEmail(it) }
+                    return@withContext token
+                }
+            } catch (e: Exception) {
+                // Fallback to single scope if settings basic not yet granted
+                try {
+                    val scopeStrFallback = "oauth2:$GMAIL_SCOPE"
+                    val tokenFallback = GoogleAuthUtil.getToken(context, account.account!!, scopeStrFallback)
+                    if (tokenFallback != null) {
+                        saveAccessToken(tokenFallback)
+                        account.email?.let { saveUserEmail(it) }
+                        return@withContext tokenFallback
+                    }
+                } catch (e2: Exception) {
+                    e2.printStackTrace()
+                }
+            }
+        }
+        null
+    }
+
     suspend fun fetchOAuthToken(account: GoogleSignInAccount): String? = withContext(Dispatchers.IO) {
         try {
-            val scopeStr = "oauth2:$GMAIL_SCOPE"
+            val scopeStr = "oauth2:$GMAIL_SCOPE $GMAIL_SETTINGS_SCOPE"
             val token = GoogleAuthUtil.getToken(context, account.account!!, scopeStr)
             if (token != null) {
                 saveAccessToken(token)
@@ -70,12 +123,23 @@ class GoogleAuthManager(private val context: Context) {
             }
             token
         } catch (e: Exception) {
-            e.printStackTrace()
-            null
+            try {
+                val scopeStrFallback = "oauth2:$GMAIL_SCOPE"
+                val tokenFallback = GoogleAuthUtil.getToken(context, account.account!!, scopeStrFallback)
+                if (tokenFallback != null) {
+                    saveAccessToken(tokenFallback)
+                    account.email?.let { saveUserEmail(it) }
+                }
+                tokenFallback
+            } catch (e2: Exception) {
+                e2.printStackTrace()
+                null
+            }
         }
     }
 
     fun clearCredentials() {
+        invalidateCurrentToken()
         prefs.edit().clear().apply()
     }
 }

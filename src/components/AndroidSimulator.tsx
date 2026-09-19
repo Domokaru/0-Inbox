@@ -26,6 +26,7 @@ import {
   AlertCircle,
   Radio,
   HelpCircle,
+  ShieldAlert,
 } from 'lucide-react';
 import type { User } from 'firebase/auth';
 import PixelTitle from './PixelTitle';
@@ -47,6 +48,11 @@ import {
   removeNeedsResponseLabel,
   applyCustomLabelToThread,
   unapplyCustomLabelFromThread,
+  getStoredAccessToken,
+  getStoredUser,
+  blockSenderInGmail,
+  extractEmailAddress,
+  addBlockedSender,
   WebEmail,
   WebLabel,
 } from '../services/gmailService';
@@ -198,7 +204,7 @@ export default function AndroidSimulator({
   const [emails, setEmails] = useState<MockEmail[]>(INITIAL_DEMO_EMAILS);
   const [lastAction, setLastAction] = useState<LastAction | null>(null);
   const [activePopup, setActivePopup] = useState<{
-    icon: 'archive' | 'trash' | 'pen' | 'mail' | 'label';
+    icon: 'archive' | 'trash' | 'pen' | 'mail' | 'label' | 'block';
     color: string;
   } | null>(null);
 
@@ -216,15 +222,21 @@ export default function AndroidSimulator({
   const [hasCheckedAuth, setHasCheckedAuth] = useState(false);
   const [showLoginPrompt, setShowLoginPrompt] = useState(false);
   const [hasDismissedLoginPrompt, setHasDismissedLoginPrompt] = useState(false);
+  const [needsLoginRefresh, setNeedsLoginRefresh] = useState(false);
 
   useEffect(() => {
     if (hasDismissedLoginPrompt) return;
+    // If existing OAuth credentials exist, or if an auth refresh is needed, do NOT pop up the blocking modal
+    if (getStoredAccessToken() || needsLoginRefresh) {
+      setShowLoginPrompt(false);
+      return;
+    }
     if (hasCheckedAuth && !currentUser) {
       setShowLoginPrompt(true);
     } else if (currentUser) {
       setShowLoginPrompt(false);
     }
-  }, [hasCheckedAuth, currentUser, hasDismissedLoginPrompt]);
+  }, [hasCheckedAuth, currentUser, hasDismissedLoginPrompt, needsLoginRefresh]);
 
   // Destructive Confirmation Modal state (required by Workspace policy)
   const [destructiveModal, setDestructiveModal] = useState<{
@@ -242,6 +254,7 @@ export default function AndroidSimulator({
   const [isDropdownOpen, setIsDropdownOpen] = useState(false);
   const [labelSearchQuery, setLabelSearchQuery] = useState('');
   const [markAsReadWithLabel, setMarkAsReadWithLabel] = useState(true);
+  const [showBlockConfirm, setShowBlockConfirm] = useState(false);
 
   // Double tap detection ref for header
   const lastTapRef = useRef<number>(0);
@@ -333,13 +346,19 @@ export default function AndroidSimulator({
         }
 
         setIsLiveGmailMode(true);
+        setNeedsLoginRefresh(false);
         const now = new Date();
         setLastRefreshedTime(
           `${now.getHours().toString().padStart(2, '0')}:${now.getMinutes().toString().padStart(2, '0')}`
         );
       } catch (err: any) {
         console.error('Failed to fetch real Gmail data:', err);
-        setAuthError(err.message || 'Failed to load emails from Gmail');
+        // Rather than popping up an error modal, suppress popup and show the Refresh & Login button
+        setNeedsLoginRefresh(true);
+        setAuthError(null);
+        setShowLoginPrompt(false);
+        setEmails([]);
+        setHasMore(false);
       } finally {
         setIsLoadingEmails(false);
       }
@@ -349,6 +368,7 @@ export default function AndroidSimulator({
 
   const handleSwitchToDemo = () => {
     setIsLiveGmailMode(false);
+    setNeedsLoginRefresh(false);
     setAuthError(null);
     setEmails(INITIAL_DEMO_EMAILS);
     setBatchCount(1);
@@ -357,17 +377,34 @@ export default function AndroidSimulator({
 
   // Initialize Firebase Auth listener
   useEffect(() => {
+    const existingToken = getStoredAccessToken();
+    const existingUser = getStoredUser();
+
+    // Immediately try to log in and retrieve email if credentials exist
+    if (existingToken) {
+      setAccessToken(existingToken);
+      setIsLiveGmailMode(true);
+      if (existingUser?.email) {
+        setCurrentUser({ email: existingUser.email, displayName: existingUser.displayName } as unknown as User);
+      }
+      loadRealGmailData(existingToken);
+      setHasCheckedAuth(true);
+    }
+
     const unsubscribe = initAuth(
       (user, token) => {
         setCurrentUser(user);
         setAccessToken(token);
+        setNeedsLoginRefresh(false);
         loadRealGmailData(token);
         setHasCheckedAuth(true);
       },
       () => {
-        setCurrentUser(null);
-        setAccessToken(null);
-        setIsLiveGmailMode(false);
+        if (!getStoredAccessToken()) {
+          setCurrentUser(null);
+          setAccessToken(null);
+          setIsLiveGmailMode(false);
+        }
         setHasCheckedAuth(true);
       }
     );
@@ -383,6 +420,7 @@ export default function AndroidSimulator({
       if (result) {
         setCurrentUser(result.user);
         setAccessToken(result.accessToken);
+        setNeedsLoginRefresh(false);
         await loadRealGmailData(result.accessToken);
         setShowLoginPrompt(false);
         setShowSettings(false);
@@ -390,10 +428,59 @@ export default function AndroidSimulator({
     } catch (err: any) {
       console.error('Sign-in failed:', err);
       if (err.code !== 'auth/popup-closed-by-user' && !err.message?.includes('popup-closed-by-user')) {
-        setAuthError(err.message || 'Google Sign-In failed');
+        setNeedsLoginRefresh(true);
+        setAuthError(null);
       }
     } finally {
       setIsSigningInGoogle(false);
+    }
+  };
+
+  // Refresh inbox using existing OAuth credentials and tokens if available
+  const handleRefreshInbox = async () => {
+    const token = accessToken || getStoredAccessToken();
+    if (token) {
+      setIsLoadingEmails(true);
+      try {
+        await loadRealGmailData(token);
+        setNeedsLoginRefresh(false);
+        return;
+      } catch (err) {
+        console.warn('Refresh inbox with stored token failed, prompting fresh sign in:', err);
+        setNeedsLoginRefresh(true);
+      } finally {
+        setIsLoadingEmails(false);
+      }
+    }
+    // Only prompt account selection if no stored token exists or it expired
+    handleGoogleSignIn();
+  };
+
+  // Block sender action
+  const handleConfirmBlockSender = async () => {
+    if (!emailToLabel) return;
+    const target = emailToLabel;
+    setShowBlockConfirm(false);
+    setShowLabelModal(false);
+
+    // Remove from UI stack immediately
+    setEmails((prev) => prev.filter((e) => e.id !== target.id));
+
+    // Show screen popup with red block icon
+    setActivePopup({ icon: 'block', color: '#EF4444' });
+    setTimeout(() => {
+      setActivePopup(null);
+    }, 800);
+
+    const token = accessToken || getStoredAccessToken();
+    if (target.isReal && token) {
+      try {
+        await blockSenderInGmail(token, target.sender, target.threadId || target.id);
+      } catch (err) {
+        console.error('Failed to block sender in Gmail:', err);
+      }
+    } else {
+      addBlockedSender(target.sender);
     }
   };
 
@@ -403,6 +490,7 @@ export default function AndroidSimulator({
     setCurrentUser(null);
     setAccessToken(null);
     setIsLiveGmailMode(false);
+    setNeedsLoginRefresh(false);
     setEmails(INITIAL_DEMO_EMAILS);
     setAccountLabels(DEFAULT_ACCOUNT_LABELS);
   };
@@ -810,8 +898,8 @@ export default function AndroidSimulator({
                 {/* Big Pixelated 0 in Center of Screen */}
                 <div
                   className="cursor-pointer transition-transform hover:scale-105 active:scale-95 my-1"
-                  onClick={triggerNeonConfetti}
-                  title="Click to explode neon confetti!"
+                  onClick={needsLoginRefresh ? handleRefreshInbox : triggerNeonConfetti}
+                  title={needsLoginRefresh ? 'Click to Refresh & Login' : 'Click to explode neon confetti!'}
                 >
                   <svg
                     viewBox="0 0 5 7"
@@ -837,10 +925,12 @@ export default function AndroidSimulator({
                     className="text-base font-black tracking-[0.25em] font-mono uppercase"
                     style={{ color: secondaryAccent }}
                   >
-                    0 INBOX
+                    {needsLoginRefresh ? 'SESSION EXPIRED' : '0 INBOX'}
                   </h3>
                   <p className={`text-xs ${isDarkTheme ? 'text-gray-400' : 'text-slate-500'}`}>
-                    {inboxZeroText}
+                    {needsLoginRefresh
+                      ? 'Previous session expired. Tap below to log in and sync mail.'
+                      : inboxZeroText}
                   </p>
                 </motion.div>
 
@@ -850,56 +940,85 @@ export default function AndroidSimulator({
                   transition={{ delay: 0.25 }}
                   className="mt-5 flex flex-wrap items-center justify-center gap-2"
                 >
-                  <button
-                    onClick={triggerNeonConfetti}
-                    className="px-3 py-1.5 rounded-xl border text-xs font-semibold flex items-center gap-1.5 transition-all active:scale-95 shadow-sm"
-                    style={{
-                      backgroundColor: `${primaryAccent}18`,
-                      borderColor: `${primaryAccent}45`,
-                      color: primaryAccent,
-                    }}
-                  >
-                    <span>🎉</span>
-                    <span>Confetti</span>
-                  </button>
-
-                  {isLiveGmailMode && currentUser ? (
-                    <button
-                      onClick={handleGoogleSignIn}
-                      className="px-3 py-1.5 rounded-xl border text-xs font-semibold flex items-center gap-1.5 transition-all active:scale-95 shadow-sm cursor-pointer"
-                      style={{
-                        backgroundColor: `${primaryAccent}18`,
-                        borderColor: `${primaryAccent}45`,
-                        color: primaryAccent,
-                      }}
-                    >
-                      <RefreshCw size={14} />
-                      <span>Refresh Inbox</span>
-                    </button>
-                  ) : hasMore ? (
-                    <button
-                      onClick={handleFetchNextBatch}
-                      className="px-3 py-1.5 rounded-xl border text-xs font-semibold flex items-center gap-1.5 transition-all active:scale-95 shadow-sm"
-                      style={{
-                        backgroundColor: `${primaryAccent}18`,
-                        borderColor: `${primaryAccent}45`,
-                        color: primaryAccent,
-                      }}
-                    >
-                      <span>More Email?</span>
-                    </button>
+                  {needsLoginRefresh ? (
+                    <>
+                      <button
+                        onClick={handleRefreshInbox}
+                        className="px-4 py-2 rounded-xl border text-xs font-bold flex items-center gap-2 transition-all active:scale-95 shadow-md cursor-pointer"
+                        style={{
+                          backgroundColor: primaryAccent,
+                          borderColor: primaryAccent,
+                          color: '#000000',
+                        }}
+                      >
+                        <RefreshCw size={14} className="animate-spin-once" />
+                        <span>Refresh & Login</span>
+                      </button>
+                      <button
+                        onClick={handleSwitchToDemo}
+                        className={`px-3 py-2 rounded-xl border text-xs font-medium flex items-center gap-1.5 transition-all active:scale-95 shadow-sm cursor-pointer ${
+                          isDarkTheme
+                            ? 'bg-gray-800/80 border-gray-700 text-gray-300 hover:text-white'
+                            : 'bg-slate-100 border-slate-200 text-slate-700 hover:text-slate-900'
+                        }`}
+                      >
+                        <span>Demo Mode</span>
+                      </button>
+                    </>
                   ) : (
-                    <button
-                      onClick={resetDemo}
-                      className="px-3 py-1.5 rounded-xl border text-xs font-semibold flex items-center gap-1.5 transition-all active:scale-95 shadow-sm"
-                      style={{
-                        backgroundColor: `${primaryAccent}18`,
-                        borderColor: `${primaryAccent}45`,
-                        color: primaryAccent,
-                      }}
-                    >
-                      <span>Reload Demo</span>
-                    </button>
+                    <>
+                      <button
+                        onClick={triggerNeonConfetti}
+                        className="px-3 py-1.5 rounded-xl border text-xs font-semibold flex items-center gap-1.5 transition-all active:scale-95 shadow-sm"
+                        style={{
+                          backgroundColor: `${primaryAccent}18`,
+                          borderColor: `${primaryAccent}45`,
+                          color: primaryAccent,
+                        }}
+                      >
+                        <span>🎉</span>
+                        <span>Confetti</span>
+                      </button>
+
+                      {isLiveGmailMode && currentUser ? (
+                        <button
+                          onClick={handleRefreshInbox}
+                          className="px-3 py-1.5 rounded-xl border text-xs font-semibold flex items-center gap-1.5 transition-all active:scale-95 shadow-sm cursor-pointer"
+                          style={{
+                            backgroundColor: `${primaryAccent}18`,
+                            borderColor: `${primaryAccent}45`,
+                            color: primaryAccent,
+                          }}
+                        >
+                          <RefreshCw size={14} />
+                          <span>Refresh Inbox</span>
+                        </button>
+                      ) : hasMore ? (
+                        <button
+                          onClick={handleFetchNextBatch}
+                          className="px-3 py-1.5 rounded-xl border text-xs font-semibold flex items-center gap-1.5 transition-all active:scale-95 shadow-sm"
+                          style={{
+                            backgroundColor: `${primaryAccent}18`,
+                            borderColor: `${primaryAccent}45`,
+                            color: primaryAccent,
+                          }}
+                        >
+                          <span>More Email?</span>
+                        </button>
+                      ) : (
+                        <button
+                          onClick={resetDemo}
+                          className="px-3 py-1.5 rounded-xl border text-xs font-semibold flex items-center gap-1.5 transition-all active:scale-95 shadow-sm"
+                          style={{
+                            backgroundColor: `${primaryAccent}18`,
+                            borderColor: `${primaryAccent}45`,
+                            color: primaryAccent,
+                          }}
+                        >
+                          <span>Reload Demo</span>
+                        </button>
+                      )}
+                    </>
                   )}
                 </motion.div>
               </motion.div>
@@ -991,6 +1110,9 @@ export default function AndroidSimulator({
                   )}
                   {activePopup.icon === 'label' && (
                     <FolderInput size={48} color={activePopup.color} strokeWidth={2.5} />
+                  )}
+                  {activePopup.icon === 'block' && (
+                    <ShieldAlert size={48} color={activePopup.color} strokeWidth={2.5} />
                   )}
                 </motion.div>
               )}
@@ -1229,17 +1351,79 @@ export default function AndroidSimulator({
                     {/* Action Buttons */}
                     <div className="flex items-center gap-2.5 pt-1">
                       <button
-                        onClick={() => setShowLabelModal(false)}
-                        className="flex-1 py-2.5 rounded-xl text-xs font-bold text-white shadow-lg transition-transform active:scale-95 border-none bg-[#FF3366] hover:bg-[#FF3366]/90"
+                        type="button"
+                        onClick={() => setShowBlockConfirm(true)}
+                        className="flex-1 py-2.5 rounded-xl text-xs font-bold text-white shadow-lg transition-transform active:scale-95 flex items-center justify-center gap-1.5 border-none bg-red-600 hover:bg-red-700 active:bg-red-800 cursor-pointer"
                       >
-                        Cancel
+                        <ShieldAlert size={14} />
+                        <span>BLOCK</span>
                       </button>
                       <button
+                        type="button"
                         onClick={() => handleApplyLabel()}
-                        className="flex-1 py-2.5 rounded-xl text-xs font-bold text-white shadow-lg transition-transform active:scale-95 flex items-center justify-center gap-1.5 border-none bg-[#FF00FF] hover:bg-[#FF00FF]/90"
+                        className="flex-1 py-2.5 rounded-xl text-xs font-bold text-white shadow-lg transition-transform active:scale-95 flex items-center justify-center gap-1.5 border-none bg-[#FF00FF] hover:bg-[#FF00FF]/90 cursor-pointer"
                       >
                         <FolderInput size={14} />
                         <span>Apply & Move</span>
+                      </button>
+                    </div>
+                  </motion.div>
+                </motion.div>
+              )}
+            </AnimatePresence>
+
+            {/* Block Sender Confirmation Dialog */}
+            <AnimatePresence>
+              {showBlockConfirm && emailToLabel && (
+                <motion.div
+                  initial={{ opacity: 0 }}
+                  animate={{ opacity: 1 }}
+                  exit={{ opacity: 0 }}
+                  className="absolute inset-0 z-60 bg-black/80 backdrop-blur-xs flex items-center justify-center p-4"
+                  onClick={() => setShowBlockConfirm(false)}
+                >
+                  <motion.div
+                    initial={{ scale: 0.9, opacity: 0 }}
+                    animate={{ scale: 1, opacity: 1 }}
+                    exit={{ scale: 0.9, opacity: 0 }}
+                    onClick={(e) => e.stopPropagation()}
+                    className={`w-full max-w-[310px] rounded-3xl p-5 border shadow-2xl flex flex-col items-center text-center ${
+                      isDarkTheme
+                        ? 'bg-[#181826] border-red-500/30 text-white'
+                        : 'bg-white border-red-200 text-slate-900'
+                    }`}
+                  >
+                    <div className="w-12 h-12 rounded-full bg-red-500/15 text-red-500 flex items-center justify-center mb-3">
+                      <ShieldAlert size={24} />
+                    </div>
+                    <h4 className="font-bold text-base mb-1">Block Sender?</h4>
+                    <p className={`text-xs mb-2 ${isDarkTheme ? 'text-gray-400' : 'text-slate-500'}`}>
+                      Are you sure you want to block emails from this address?
+                    </p>
+                    <div className="w-full py-1.5 px-2.5 rounded-xl bg-red-500/10 border border-red-500/20 text-red-400 text-xs font-mono font-semibold truncate mb-3">
+                      {extractEmailAddress(emailToLabel.sender)}
+                    </div>
+                    <p className={`text-[11px] leading-relaxed mb-4 ${isDarkTheme ? 'text-gray-400' : 'text-slate-500'}`}>
+                      This email address will be added to your blocked list in Gmail, and future messages will automatically go to Trash.
+                    </p>
+                    <div className="flex items-center gap-2.5 w-full">
+                      <button
+                        type="button"
+                        onClick={() => setShowBlockConfirm(false)}
+                        className={`flex-1 py-2.5 rounded-xl text-xs font-semibold transition-colors cursor-pointer ${
+                          isDarkTheme
+                            ? 'bg-gray-800 text-gray-300 hover:bg-gray-700'
+                            : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
+                        }`}
+                      >
+                        No, Keep
+                      </button>
+                      <button
+                        type="button"
+                        onClick={handleConfirmBlockSender}
+                        className="flex-1 py-2.5 rounded-xl text-xs font-bold text-white bg-red-600 hover:bg-red-700 active:scale-95 shadow-lg shadow-red-600/30 cursor-pointer border-none"
+                      >
+                        Yes, Block
                       </button>
                     </div>
                   </motion.div>
