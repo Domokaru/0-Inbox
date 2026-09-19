@@ -199,6 +199,8 @@ class GmailRepository(
         makeRequest("$GMAIL_API_BASE/threads/$threadId/trash", "POST")
     }
 
+    suspend fun trashEmail(threadId: String) = deleteEmail(threadId)
+
     suspend fun markRead(threadId: String) = withContext(Dispatchers.IO) {
         val body = JSONObject().apply {
             put("removeLabelIds", JSONArray().put("UNREAD"))
@@ -284,7 +286,7 @@ class GmailRepository(
 
         // 2. Trash the current thread
         try {
-            trashEmail(threadId)
+            deleteEmail(threadId)
         } catch (e: Exception) {
             e.printStackTrace()
         }
